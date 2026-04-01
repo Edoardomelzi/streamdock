@@ -689,10 +689,6 @@ body {
 <!-- BOTTOM BAR -->
 <div class="scroll-lock">
   <div class="total-viewers">Totale: <strong id="totalViewers">—</strong> viewers</div>
-  <div class="toggle" onclick="toggleScrollLock()">
-    <div class="toggle-track on" id="scrollTrack"><div class="toggle-thumb"></div></div>
-    <div class="scroll-lock-label">Auto-scroll</div>
-  </div>
 </div>
 
 <script>
@@ -717,7 +713,7 @@ const CONFIG = {
 // ═══════════════════════════════════════════════════════
 const state = {
   filter: 'all',
-  autoScroll: true,
+
   messages: [],
   msgId: 0,
   ytConnected: false,
@@ -765,22 +761,21 @@ function setFilter(f) {
 // ═══════════════════════════════════════════════════════
 //  SCROLL LOCK
 // ═══════════════════════════════════════════════════════
-function toggleScrollLock() {
-  state.autoScroll = !state.autoScroll;
-  document.getElementById('scrollTrack').className = 'toggle-track' + (state.autoScroll ? ' on' : '');
-}
+
 
 const feed = document.getElementById('chatFeed');
+
+let isPaused = false;
+
 feed.addEventListener('scroll', () => {
-  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
-  if (!atBottom && state.autoScroll) {
-    state.autoScroll = false;
-    document.getElementById('scrollTrack').className = 'toggle-track';
-  }
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+  isPaused = !atBottom;
 });
 
 function scrollBottom() {
-  if (state.autoScroll) feed.scrollTop = feed.scrollHeight;
+  if (!isPaused) {
+    feed.scrollTop = feed.scrollHeight;
+  }
 }
 
 // ═══════════════════════════════════════════════════════
