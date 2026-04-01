@@ -301,6 +301,9 @@ body {
 .msg.event-member { border-left-color: var(--yt); }
 .msg.event-superchat { border-left-color: #00e5ff; }
 .msg.event-gift { border-left-color: #ff80ab; }
+.msg.event-raid { border-left-color: #ff9800; }
+.msg.event-reward { border-left-color: #00bcd4; }
+.msg.event-hype { border-left-color: #e91e63; }
 
 .event-badge {
   display: inline-flex;
@@ -322,6 +325,9 @@ body {
 .badge-member { background: rgba(255,32,32,0.15); color: var(--yt); }
 .badge-superchat { background: rgba(0,229,255,0.15); color: #00e5ff; }
 .badge-gift   { background: rgba(255,128,171,0.15); color: #ff80ab; }
+.badge-raid   { background: rgba(255,152,0,0.15); color: #ff9800; }
+.badge-reward { background: rgba(0,188,212,0.15); color: #00bcd4; }
+.badge-hype   { background: rgba(233,30,99,0.15); color: #e91e63; }
 
 .event-main {
   font-size: 14px;
@@ -825,6 +831,9 @@ function eventConfig(msg) {
     gift:      { icon:'♡', label:'GIFT SUB',  main: m => `<strong>${escHtml(m.author)}</strong> ha regalato ${m.amount || 1} sub${m.recipient ? ` a ${escHtml(m.recipient)}` : ''}` },
     member:    { icon:'●', label:'MEMBRO YT', main: m => `<strong>${escHtml(m.author)}</strong> è diventato membro!` },
     superchat: { icon:'⚡',label:'SUPERCHAT', main: m => `<strong>${escHtml(m.author)}</strong> — <span class="event-amount" style="color:#00e5ff">${m.amount}</span>` },
+    raid:    { icon:'⚔', label:'RAID',    main: m => `<strong>${escHtml(m.author)}</strong> sta raidando con <span class="event-amount" style="color:#ff9800">${m.amount} spettatori</span>!` },
+    reward:  { icon:'🎯', label:'REWARD',  main: m => `<strong>${escHtml(m.author)}</strong> ha riscattato: <em>${escHtml(m.rewardTitle || 'Channel Point Reward')}</em>` },
+    hype:    { icon:'🔥', label:'HYPE TRAIN', main: m => `Hype Train Livello <span class="event-amount" style="color:#e91e63">${m.level}</span>!` },
   };
   return map[msg.subtype] || { icon:'◉', label:'EVENT', main: m => escHtml(m.author) };
 }
@@ -896,7 +905,7 @@ function connectTwitch() {
 
   // OAuth implicit flow
   const redirectUri = window.location.href.split('?')[0].split('#')[0];
-  const scopes = 'chat:read channel:read:subscriptions bits:read';
+  const scopes = 'chat:read channel:read:subscriptions bits:read channel:read:redemptions channel:read:hype_train';
   const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}`;
 
   const popup = window.open(authUrl, 'twitch_auth', 'width=600,height=700');
@@ -1031,11 +1040,18 @@ function initTwitchEventSub(clientId, token, channel) {
         if (!userId) return;
 
         // Subscribe to bits
-        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
-          method: 'POST',
-          headers: { 'Client-Id': clientId, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'channel.cheer', version: '1', condition: { broadcaster_user_id: userId }, transport: { method: 'websocket', session_id: sessionId } })
+        const subBody = (type, version='1') => JSON.stringify({
+          type, version,
+          condition: { broadcaster_user_id: userId },
+          transport: { method: 'websocket', session_id: sessionId }
         });
+        const subHeaders = { 'Client-Id': clientId, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', { method: 'POST', headers: subHeaders, body: subBody('channel.cheer') });
+        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', { method: 'POST', headers: subHeaders, body: subBody('channel.raid', '1').replace('"broadcaster_user_id"', '"to_broadcaster_user_id"') });
+        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', { method: 'POST', headers: subHeaders, body: subBody('channel.channel_points_custom_reward_redemption.add') });
+        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', { method: 'POST', headers: subHeaders, body: subBody('channel.hype_train.begin') });
+        await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', { method: 'POST', headers: subHeaders, body: subBody('channel.hype_train.progress') });
 
         // Poll viewer count
         clearInterval(state.viewerInterval);
@@ -1070,6 +1086,31 @@ function initTwitchEventSub(clientId, token, channel) {
           author: ev.user_name || 'Anonimo',
           amount: ev.bits,
           message: ev.message
+        });
+      }
+
+      if (sub === 'channel.raid') {
+        addMessage({
+          platform: 'tw', type: 'event', subtype: 'raid',
+          author: ev.from_broadcaster_user_name || 'Qualcuno',
+          amount: ev.viewers || 0
+        });
+      }
+
+      if (sub === 'channel.channel_points_custom_reward_redemption.add') {
+        addMessage({
+          platform: 'tw', type: 'event', subtype: 'reward',
+          author: ev.user_name || 'Anonimo',
+          rewardTitle: ev.reward?.title || 'Channel Point Reward',
+          message: ev.user_input || ''
+        });
+      }
+
+      if (sub === 'channel.hype_train.begin' || sub === 'channel.hype_train.progress') {
+        addMessage({
+          platform: 'tw', type: 'event', subtype: 'hype',
+          author: 'Hype Train',
+          level: ev.level || 1
         });
       }
     }
@@ -1257,6 +1298,9 @@ const DEMO_MSGS = [
   { platform:'tw', type:'chat', author:'Pepperoni22', text:'OMEGALUL' },
   { platform:'yt', type:'event', subtype:'member', author:'GiuliaB', message:'Finalmente membro!' },
   { platform:'tw', type:'event', subtype:'gift', author:'BigDonator', amount:5 },
+  { platform:'tw', type:'event', subtype:'raid', author:'StreamAmico', amount:247 },
+  { platform:'tw', type:'event', subtype:'reward', author:'FanStar', rewardTitle:'Scegli la prossima canzone' },
+  { platform:'tw', type:'event', subtype:'hype', author:'Hype Train', level:2 },
   { platform:'yt', type:'chat', author:'TommasoX', text:'bella quella mossa!' },
   { platform:'tw', type:'chat', author:'SlayerFR', text:'gg gg gg' },
 ];
