@@ -710,7 +710,8 @@ const CONFIG = {
   youtube: {
     clientId: '',
     videoId: '',
-    accessToken: ''
+    accessToken: '',
+    refreshToken: ''
   }
 };
 
@@ -919,6 +920,7 @@ function connectTwitch() {
         const params = new URLSearchParams(hash.slice(1));
         const token = params.get('access_token');
         CONFIG.twitch.accessToken = token;
+        saveCredentials();
         initTwitchIRC(channel, token);
         initTwitchEventSub(clientId, token, channel);
       }
@@ -1118,6 +1120,7 @@ function initTwitchEventSub(clientId, token, channel) {
 }
 
 function disconnectTwitch() {
+  clearTwitchCredentials();
   if (state.twitchWS) { state.twitchWS.close(); state.twitchWS = null; }
   state.twConnected = false;
   state.twViewers = null;
@@ -1138,28 +1141,62 @@ function connectYT() {
   if (!clientId) { alert('Inserisci il Client ID Google'); return; }
 
   CONFIG.youtube.clientId = clientId;
-  CONFIG.youtube.videoId  = videoId;
+  CONFIG.youtube.videoId  = videoId || '';
 
   closeModal('ytModal');
 
-  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  // Usa code flow per ottenere refresh_token tramite il worker Cloudflare
+  const redirectUri = 'https://streamdockedo.edoardo-melzi.workers.dev/token';
   const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}`;
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
 
   const popup = window.open(authUrl, 'yt_auth', 'width=600,height=700');
 
-  const timer = setInterval(() => {
+  const timer = setInterval(async () => {
     try {
-      const hash = popup.location.hash;
-      if (hash && hash.includes('access_token')) {
+      const pu = new URL(popup.location.href);
+      const code = pu.searchParams.get('code');
+      if (code) {
         clearInterval(timer);
         popup.close();
-        const params = new URLSearchParams(hash.slice(1));
-        CONFIG.youtube.accessToken = params.get('access_token');
-        initYouTubeChat(CONFIG.youtube.accessToken, videoId);
+        // Scambia code con access+refresh token via worker
+        const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const data = await r.json();
+        if (data.access_token) {
+          CONFIG.youtube.accessToken  = data.access_token;
+          CONFIG.youtube.refreshToken = data.refresh_token;
+          saveYTCredentials();
+          initYouTubeChat(data.access_token, videoId);
+        } else {
+          alert('Errore login YouTube: ' + (data.error_description || JSON.stringify(data)));
+        }
       }
     } catch(e) {}
   }, 500);
+}
+
+async function refreshYTToken() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('sd_yt') || 'null');
+    if (!saved?.refreshToken) return null;
+    const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: saved.refreshToken })
+    });
+    const data = await r.json();
+    if (data.access_token) {
+      CONFIG.youtube.accessToken = data.access_token;
+      saved.accessToken = data.access_token;
+      localStorage.setItem('sd_yt', JSON.stringify(saved));
+      return data.access_token;
+    }
+  } catch(e) {}
+  return null;
 }
 
 async function initYouTubeChat(token, videoId) {
@@ -1261,12 +1298,20 @@ async function initYouTubeChat(token, videoId) {
 }
 
 async function ytFetch(url, token) {
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  let r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (r.status === 401) {
+    // Token scaduto, prova a rinnovarlo
+    const newToken = await refreshYTToken();
+    if (newToken) {
+      r = await fetch(url, { headers: { Authorization: `Bearer ${newToken}` } });
+    }
+  }
   if (!r.ok) throw new Error(`YT API ${r.status}`);
   return r.json();
 }
 
 function disconnectYT() {
+  clearYTCredentials();
   state.ytConnected = false;
   state.ytViewers = null;
   clearInterval(state.ytPollInterval);
@@ -1321,10 +1366,92 @@ function runDemo() {
   if (state.demoMode) setTimeout(runDemo, next);
 }
 
+// ═══════════════════════════════════════════════════════
+//  PERSISTENZA — salva e ricarica credenziali automaticamente
+// ═══════════════════════════════════════════════════════
+
+function saveCredentials() {
+  try {
+    localStorage.setItem('sd_tw', JSON.stringify({
+      clientId: CONFIG.twitch.clientId,
+      channel: CONFIG.twitch.channel,
+      accessToken: CONFIG.twitch.accessToken
+    }));
+  } catch(e) {}
+}
+
+function saveYTCredentials() {
+  try {
+    localStorage.setItem('sd_yt', JSON.stringify({
+      clientId: CONFIG.youtube.clientId,
+      videoId: CONFIG.youtube.videoId,
+      accessToken: CONFIG.youtube.accessToken,
+      refreshToken: CONFIG.youtube.refreshToken || ''
+    }));
+  } catch(e) {}
+}
+
+function clearTwitchCredentials() {
+  try { localStorage.removeItem('sd_tw'); } catch(e) {}
+}
+
+function clearYTCredentials() {
+  try { localStorage.removeItem('sd_yt'); } catch(e) {}
+}
+
+async function autoReconnect() {
+  // Twitch
+  try {
+    const tw = JSON.parse(localStorage.getItem('sd_tw') || 'null');
+    if (tw && tw.clientId && tw.channel && tw.accessToken) {
+      CONFIG.twitch.clientId = tw.clientId;
+      CONFIG.twitch.channel = tw.channel;
+      CONFIG.twitch.accessToken = tw.accessToken;
+      // Verify token is still valid
+      const r = await fetch('https://id.twitch.tv/oauth2/validate', {
+        headers: { Authorization: 'OAuth ' + tw.accessToken }
+      });
+      if (r.ok) {
+        initTwitchIRC(tw.channel, tw.accessToken);
+        initTwitchEventSub(tw.clientId, tw.accessToken, tw.channel);
+      } else {
+        clearTwitchCredentials();
+      }
+    }
+  } catch(e) {}
+
+  // YouTube
+  try {
+    const yt = JSON.parse(localStorage.getItem('sd_yt') || 'null');
+    if (yt && yt.clientId && (yt.accessToken || yt.refreshToken)) {
+      CONFIG.youtube.clientId = yt.clientId;
+      CONFIG.youtube.videoId = yt.videoId;
+      CONFIG.youtube.accessToken = yt.accessToken;
+      CONFIG.youtube.refreshToken = yt.refreshToken || '';
+      // Verify access token
+      let token = yt.accessToken;
+      const r = await fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + token);
+      if (!r.ok) {
+        // Try refresh
+        token = await refreshYTToken();
+      }
+      if (token) {
+        initYouTubeChat(token, yt.videoId);
+      } else {
+        clearYTCredentials();
+      }
+    }
+  } catch(e) {}
+}
+
 // Initial state
 updateViewerUI();
-addMessage({ platform:'tw', type:'chat', author:'StreamDock', text:'Benvenuto! Connetti YouTube e/o Twitch per iniziare. Ora in modalità demo.' });
-setTimeout(runDemo, 1500);
+autoReconnect().then(() => {
+  if (!state.twConnected && !state.ytConnected) {
+    addMessage({ platform:'tw', type:'chat', author:'StreamDock', text:'Benvenuto! Connetti YouTube e/o Twitch per iniziare. Ora in modalità demo.' });
+    setTimeout(runDemo, 1500);
+  }
+});
 </script>
 </body>
 </html>
