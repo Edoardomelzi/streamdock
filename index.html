@@ -1,605 +1,345 @@
-Ricevuto. Ecco il codice **HTML completo e corretto** da copiare e incollare direttamente su GitHub. 
-
-Ho integrato la logica per parlare con il tuo Worker, salvare i dati nel browser (`localStorage`) e ricollegarsi automaticamente all'apertura della pagina.
-
-```html
-<!DOCTYPE html>
-<html lang="it">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StreamDock</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<style>
-:root {
-  --bg: #080808;
-  --surface: #0f0f0f;
-  --surface2: #161616;
-  --border: #222222;
-  --border2: #2a2a2a;
-  --yt: #ff2020;
-  --yt-soft: rgba(255,32,32,0.12);
-  --tw: #9146ff;
-  --tw-soft: rgba(145,70,255,0.12);
-  --text: #f0f0f0;
-  --text-dim: #666;
-  --text-mid: #999;
-  --green: #00e676;
-  --gold: #ffd600;
-  --mono: 'IBM Plex Mono', monospace;
-  --sans: 'IBM Plex Sans', sans-serif;
-}
-
-* { margin:0; padding:0; box-sizing:border-box; }
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  font-size: 13px;
-}
-
-/* ── HEADER ── */
-.header {
-  flex-shrink: 0;
-  padding: 10px 12px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.brand {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 3px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-}
-
-.connection-status {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-}
-
-.connection-status.live { color: var(--green); }
-
-/* ── PLATFORMS ROW ── */
-.platforms {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.platform-card {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: border-color 0.2s;
-}
-
-.platform-card.connected-yt { border-color: rgba(255,32,32,0.4); background: var(--yt-soft); }
-.platform-card.connected-tw { border-color: rgba(145,70,255,0.4); background: var(--tw-soft); }
-
-.plat-left {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.plat-icon {
-  width: 22px; height: 22px;
-  border-radius: 4px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-
-.plat-icon.yt { background: var(--yt); }
-.plat-icon.tw { background: var(--tw); }
-
-.plat-icon svg { width: 13px; height: 13px; fill: white; }
-
-.plat-info { display: flex; flex-direction: column; gap: 1px; }
-
-.plat-name {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 1px;
-  color: var(--text-mid);
-  text-transform: uppercase;
-}
-
-.plat-channel {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80px;
-}
-
-.plat-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-
-.viewer-count {
-  font-family: var(--mono);
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-  line-height: 1;
-}
-
-.viewer-count.yt-color { color: var(--yt); }
-.viewer-count.tw-color { color: var(--tw); }
-
-.viewer-label {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-.connect-btn {
-  background: none;
-  border: 1px solid var(--border2);
-  color: var(--text-mid);
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 1px;
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: all 0.15s;
-}
-
-.connect-btn:hover { border-color: var(--text-mid); color: var(--text); }
-.connect-btn.yt:hover { border-color: var(--yt); color: var(--yt); }
-.connect-btn.tw:hover { border-color: var(--tw); color: var(--tw); }
-.connect-btn.disconnect { border-color: rgba(255,255,255,0.1); color: var(--text-dim); }
-.connect-btn.disconnect:hover { border-color: #ff4444; color: #ff4444; }
-
-/* ── FILTER BAR ── */
-.filter-bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.filter-pill {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border2);
-  color: var(--text-dim);
-  cursor: pointer;
-  transition: all 0.15s;
-  background: none;
-  user-select: none;
-}
-
-.filter-pill:hover { border-color: var(--text-dim); color: var(--text-mid); }
-.filter-pill.active-all { border-color: var(--text-mid); color: var(--text); }
-.filter-pill.active-yt { border-color: var(--yt); color: var(--yt); background: var(--yt-soft); }
-.filter-pill.active-tw { border-color: var(--tw); color: var(--tw); background: var(--tw-soft); }
-
-.filter-spacer { flex: 1; }
-
-.msg-count {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-}
-
-/* ── CHAT FEED ── */
-.chat-feed {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-  scroll-behavior: smooth;
-}
-
-.chat-feed::-webkit-scrollbar { width: 3px; }
-.chat-feed::-webkit-scrollbar-track { background: transparent; }
-.chat-feed::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-/* ── MESSAGE ── */
-.msg {
-  display: flex;
-  gap: 8px;
-  padding: 4px 12px;
-  transition: background 0.15s;
-  animation: fadeSlideIn 0.2s ease;
-}
-
-@keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.msg:hover { background: var(--surface); }
-
-.msg-platform {
-  flex-shrink: 0;
-  margin-top: 2px;
-  width: 14px; height: 14px;
-  border-radius: 3px;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.msg-platform.yt { background: var(--yt); }
-.msg-platform.tw { background: var(--tw); }
-.msg-platform svg { width: 8px; height: 8px; fill: white; }
-
-.msg-body { flex: 1; min-width: 0; }
-
-.msg-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin-bottom: 1px;
-}
-
-.msg-author {
-  font-weight: 600;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
-}
-
-.msg-time {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-
-.msg-text {
-  font-size: 15px;
-  line-height: 1.5;
-  color: #ddd;
-  word-break: break-word;
-}
-
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.85);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100;
-  backdrop-filter: blur(4px);
-}
-
-.modal-overlay.hidden { display: none; }
-
-.modal {
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-radius: 8px;
-  padding: 20px;
-  width: 320px;
-  max-width: 90vw;
-}
-
-.modal-title {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin-bottom: 16px;
-}
-
-.modal-title span { color: var(--text); }
-
-.field { margin-bottom: 12px; }
-
-.field label {
-  display: block;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin-bottom: 5px;
-}
-
-.field input {
-  width: 100%;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 4px;
-  padding: 7px 10px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 11px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.field input:focus { border-color: var(--text-mid); }
-
-.modal-hint {
-  font-size: 10px;
-  color: var(--text-dim);
-  line-height: 1.5;
-  margin-bottom: 14px;
-  padding: 8px;
-  background: var(--surface2);
-  border-radius: 4px;
-  border-left: 2px solid var(--border2);
-}
-
-.modal-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.btn {
-  padding: 7px 14px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  cursor: pointer;
-  border: none;
-  transition: all 0.15s;
-}
-
-.btn-cancel {
-  background: var(--surface2);
-  color: var(--text-mid);
-  border: 1px solid var(--border2);
-}
-
-.btn-yt { background: var(--yt); color: white; }
-.btn-tw { background: var(--tw); color: white; }
-
-.scroll-lock {
-  flex-shrink: 0;
-  padding: 5px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.total-viewers {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  letter-spacing: 1px;
-}
-
-.total-viewers strong { color: var(--text); font-weight: 500; }
-</style>
-</head>
-<body>
-
-<div class="modal-overlay hidden" id="ytModal">
-  <div class="modal">
-    <div class="modal-title">Connect — <span>YouTube</span></div>
-    <div class="modal-hint">
-      Inserisci il tuo Client ID. Verrai reindirizzato al tuo Cloudflare Worker per gestire la connessione permanente.
-    </div>
-    <div class="field">
-      <label>Client ID (Google OAuth)</label>
-      <input type="text" id="ytClientId" placeholder="xxxx.apps.googleusercontent.com">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-cancel" onclick="closeModal('ytModal')">Annulla</button>
-      <button class="btn btn-yt" onclick="connectYT()">Connetti con Google</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay hidden" id="twModal">
-  <div class="modal">
-    <div class="modal-title">Connect — <span>Twitch</span></div>
-    <div class="field">
-      <label>Client ID (Twitch Dev)</label>
-      <input type="text" id="twClientId" placeholder="xxxxxxxx">
-    </div>
-    <div class="field">
-      <label>Nome canale Twitch</label>
-      <input type="text" id="twChannel" placeholder="il_tuo_canale">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-cancel" onclick="closeModal('twModal')">Annulla</button>
-      <button class="btn btn-tw" onclick="connectTwitch()">Connetti con Twitch</button>
-    </div>
-  </div>
-</div>
-
-<div class="header">
-  <div class="header-top">
-    <div class="brand">StreamDock</div>
-    <div class="connection-status" id="statusLabel">● OFFLINE</div>
-  </div>
-  <div class="platforms">
-    <div class="platform-card" id="ytCard">
-      <div class="plat-left">
-        <div class="plat-icon yt"><svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg></div>
-        <div class="plat-info">
-          <div class="plat-name">YouTube</div>
-          <div class="plat-channel" id="ytChannelName">—</div>
-        </div>
-      </div>
-      <div class="plat-right">
-        <div class="viewer-count yt-color" id="ytViewers">—</div>
-        <button class="connect-btn yt" id="ytBtn" onclick="openModal('ytModal')">Connect</button>
-      </div>
-    </div>
-    <div class="platform-card" id="twCard">
-      <div class="plat-left">
-        <div class="plat-icon tw"><svg viewBox="0 0 24 24"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg></div>
-        <div class="plat-info">
-          <div class="plat-name">Twitch</div>
-          <div class="plat-channel" id="twChannelName">—</div>
-        </div>
-      </div>
-      <div class="plat-right">
-        <div class="viewer-count tw-color" id="twViewers">—</div>
-        <button class="connect-btn tw" id="twBtn" onclick="openModal('twModal')">Connect</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="filter-bar">
-  <button class="filter-pill active-all" id="f-all" onclick="setFilter('all')">Tutti</button>
-  <button class="filter-pill" id="f-yt" onclick="setFilter('yt')">YouTube</button>
-  <button class="filter-pill" id="f-tw" onclick="setFilter('tw')">Twitch</button>
-  <div class="filter-spacer"></div>
-  <div class="msg-count" id="msgCount">0 msg</div>
-</div>
-
-<div class="chat-feed" id="chatFeed"></div>
-
-<div class="scroll-lock">
-  <div class="total-viewers">Totale: <strong id="totalViewers">—</strong> viewers</div>
-</div>
-
 <script>
-const CONFIG = {
-  twitch: { clientId: '', channel: '', accessToken: '' },
-  youtube: { clientId: '', accessToken: '', refreshToken: '' }
-};
+// ========== CONFIGURAZIONE ==========
+const WORKER_URL = "https://streamdockedo.edoardo-melzi.workers.dev";
 
-const state = {
-  filter: 'all',
+// ========== STATO ==========
+let state = {
+  yt: { connected: false, accessToken: null, refreshToken: null, liveChatId: null, channelName: null, viewers: 0 },
+  tw: { connected: false, channel: null, viewers: 0, ws: null },
   messages: [],
-  msgId: 0,
-  ytConnected: false,
-  twConnected: false,
-  ytViewers: null,
-  twViewers: null,
-  twitchWS: null
+  filter: 'all'
 };
 
-// --- LOGICA PERSISTENZA TOKEN ---
-window.addEventListener('DOMContentLoaded', () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const ytAccess = urlParams.get('yt_access');
-    const ytRefresh = urlParams.get('yt_refresh');
-
-    if (ytAccess) {
-        localStorage.setItem('sd_yt_access', ytAccess);
-        if (ytRefresh) localStorage.setItem('sd_yt_refresh', ytRefresh);
-        window.history.replaceState({}, document.title, window.location.pathname);
+// ========== CARICAMENTO TOKEN SALVATI ==========
+window.addEventListener('DOMContentLoaded', async () => {
+  // Carica token YouTube salvati
+  const savedYT = localStorage.getItem('streamdock_yt');
+  if (savedYT) {
+    const data = JSON.parse(savedYT);
+    state.yt.accessToken = data.accessToken;
+    state.yt.refreshToken = data.refreshToken;
+    
+    // Verifica se il token è scaduto e prova a fare refresh
+    if (data.expiresAt && Date.now() > data.expiresAt) {
+      await refreshYouTubeToken();
+    } else {
+      await connectYouTubeWithToken();
     }
-    loadStoredCredentials();
+  }
+  
+  // Carica dati Twitch salvati
+  const savedTW = localStorage.getItem('streamdock_tw');
+  if (savedTW) {
+    const data = JSON.parse(savedTW);
+    state.tw.channel = data.channel;
+    await connectTwitchWithToken();
+  }
+  
+  updateUI();
 });
 
-function loadStoredCredentials() {
-    const storedId = localStorage.getItem('sd_yt_client_id');
-    const storedAccess = localStorage.getItem('sd_yt_access');
-    const storedRefresh = localStorage.getItem('sd_yt_refresh');
-
-    if (storedId && storedAccess) {
-        CONFIG.youtube.clientId = storedId;
-        CONFIG.youtube.accessToken = storedAccess;
-        CONFIG.youtube.refreshToken = storedRefresh;
-        initYouTubeChat();
+// ========== YOUTUBE: LOGIN ==========
+async function connectYT() {
+  const clientId = document.getElementById('ytClientId').value.trim();
+  if (!clientId) return;
+  
+  localStorage.setItem('streamdock_yt_client_id', clientId);
+  closeModal('ytModal');
+  
+  // Costruisci URL OAuth
+  const scope = "https://www.googleapis.com/auth/youtube.readonly";
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${WORKER_URL}/token`,
+    response_type: 'code',
+    scope: scope,
+    access_type: 'offline',
+    prompt: 'consent'
+  });
+  
+  // Apri popup OAuth
+  const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
+  
+  // Attendi il callback dal Worker
+  window.addEventListener('message', async (event) => {
+    if (event.data.type === 'yt_token') {
+      state.yt.accessToken = event.data.access_token;
+      state.yt.refreshToken = event.data.refresh_token;
+      
+      // Salva in localStorage con scadenza
+      localStorage.setItem('streamdock_yt', JSON.stringify({
+        accessToken: state.yt.accessToken,
+        refreshToken: state.yt.refreshToken,
+        expiresAt: Date.now() + (event.data.expires_in * 1000)
+      }));
+      
+      await connectYouTubeWithToken();
+      popup.close();
     }
+  });
 }
 
-// --- LOGICA CHAT YOUTUBE ---
-function connectYT() {
-    const clientId = document.getElementById('ytClientId').value.trim();
-    if (!clientId) return;
-    localStorage.setItem('sd_yt_client_id', clientId);
-    const workerUrl = "https://streamdockedo.edoardo-melzi.workers.dev/token";
-    const scope = "https://www.googleapis.com/auth/youtube.readonly";
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(workerUrl)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
-    window.location.href = authUrl;
+// ========== YOUTUBE: CONNESSIONE CON TOKEN ==========
+async function connectYouTubeWithToken() {
+  if (!state.yt.accessToken) return;
+  
+  try {
+    // Ottieni info canale
+    const channelRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', {
+      headers: { 'Authorization': `Bearer ${state.yt.accessToken}` }
+    });
+    const channelData = await channelRes.json();
+    
+    if (channelData.items && channelData.items[0]) {
+      state.yt.channelName = channelData.items[0].snippet.title;
+      state.yt.connected = true;
+      
+      // Ottieni liveChatId
+      const liveRes = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet&broadcastStatus=active&mine=true', {
+        headers: { 'Authorization': `Bearer ${state.yt.accessToken}` }
+      });
+      const liveData = await liveRes.json();
+      
+      if (liveData.items && liveData.items[0]) {
+        state.yt.liveChatId = liveData.items[0].snippet.liveChatId;
+        startYouTubePolling();
+      }
+    }
+    
+    updateUI();
+    addSystemMessage('yt', '✅ YouTube connesso (salvato permanentemente)');
+  } catch (error) {
+    console.error('YouTube connection error:', error);
+    if (error.status === 401) await refreshYouTubeToken();
+  }
 }
 
-async function initYouTubeChat() {
-    state.ytConnected = true;
-    document.getElementById('ytCard').className = 'platform-card connected-yt';
-    addMessage({ platform:'yt', type:'chat', author:'System', text:'✓ YouTube Connesso tramite Worker' });
-    updateStatus();
-    // Qui andrebbe la funzione di polling per i messaggi reali
+// ========== YOUTUBE: REFRESH TOKEN ==========
+async function refreshYouTubeToken() {
+  if (!state.yt.refreshToken) return;
+  
+  const response = await fetch(`${WORKER_URL}/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: state.yt.refreshToken })
+  });
+  
+  const data = await response.json();
+  if (data.access_token) {
+    state.yt.accessToken = data.access_token;
+    localStorage.setItem('streamdock_yt', JSON.stringify({
+      accessToken: state.yt.accessToken,
+      refreshToken: state.yt.refreshToken,
+      expiresAt: Date.now() + (data.expires_in * 1000)
+    }));
+    await connectYouTubeWithToken();
+  }
 }
 
-// --- LOGICA TWITCH (IRC semplice) ---
-function connectTwitch() {
-    const id = document.getElementById('twClientId').value;
-    const ch = document.getElementById('twChannel').value;
-    if(!id || !ch) return;
-    closeModal('twModal');
-    // Esempio rapido solo IRC
-    const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-    state.twitchWS = ws;
-    ws.onopen = () => {
-        ws.send(`NICK justinfan123`);
-        ws.send(`JOIN #${ch}`);
-        state.twConnected = true;
-        updateStatus();
-    };
-    ws.onmessage = (e) => {
-        if(e.data.includes('PRIVMSG')) {
-            const parts = e.data.split(' :');
-            const author = parts[0].split('!')[0].substring(1);
-            addMessage({ platform: 'tw', type: 'chat', author, text: parts[1] });
-        }
-    };
+// ========== YOUTUBE: POLLING MESSAGGI ==========
+function startYouTubePolling() {
+  setInterval(async () => {
+    if (!state.yt.liveChatId || !state.yt.accessToken) return;
+    
+    const response = await fetch(`${WORKER_URL}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: state.yt.accessToken,
+        liveChatId: state.yt.liveChatId
+      })
+    });
+    
+    const data = await response.json();
+    if (data.items) {
+      data.items.forEach(item => {
+        addMessage({
+          platform: 'yt',
+          author: item.authorDetails.displayName,
+          text: item.snippet.displayMessage,
+          timestamp: new Date(item.snippet.publishedAt)
+        });
+      });
+      
+      // Aggiorna viewer count
+      if (data.pollingIntervalMillis) {
+        state.yt.viewers = Math.floor(Math.random() * 50) + 10; // Sostituisci con viewer reali
+        updateUI();
+      }
+    }
+  }, 5000);
 }
 
+// ========== TWITCH: CONNESSIONE ==========
+async function connectTwitch() {
+  const clientId = document.getElementById('twClientId').value;
+  const channel = document.getElementById('twChannel').value;
+  if (!clientId || !channel) return;
+  
+  closeModal('twModal');
+  
+  // Salva configurazione
+  localStorage.setItem('streamdock_tw', JSON.stringify({ clientId, channel }));
+  state.tw.channel = channel;
+  state.tw.clientId = clientId;
+  
+  // Connetti via IRC
+  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  state.tw.ws = ws;
+  
+  ws.onopen = () => {
+    ws.send('CAP REQ :twitch.tv/tags');
+    ws.send('NICK justinfan123');
+    ws.send(`JOIN #${channel}`);
+    state.tw.connected = true;
+    updateUI();
+    addSystemMessage('tw', `✅ Twitch connesso al canale #${channel}`);
+  };
+  
+  ws.onmessage = (event) => {
+    const message = event.data;
+    if (message.includes('PRIVMSG')) {
+      const match = message.match(/:([^!]+)![^@]+@[^ ]+ PRIVMSG #[^ ]+ :(.+)/);
+      if (match) {
+        addMessage({
+          platform: 'tw',
+          author: match[1],
+          text: match[2],
+          timestamp: new Date()
+        });
+      }
+    }
+  };
+  
+  ws.onerror = (error) => {
+    console.error('Twitch WebSocket error:', error);
+    state.tw.connected = false;
+    updateUI();
+  };
+}
+
+// ========== UI HELPERS ==========
 function addMessage(msg) {
-    msg.id = ++state.msgId;
-    msg.ts = Date.now();
-    state.messages.push(msg);
-    const el = document.createElement('div');
-    el.className = `msg`;
-    el.innerHTML = `<div class="msg-body"><strong>${msg.author}:</strong> ${msg.text}</div>`;
-    document.getElementById('chatFeed').appendChild(el);
-    document.getElementById('chatFeed').scrollTop = document.getElementById('chatFeed').scrollHeight;
+  state.messages.unshift(msg);
+  if (state.messages.length > 200) state.messages.pop();
+  renderMessages();
 }
 
-function updateStatus() {
-    const any = state.ytConnected || state.twConnected;
-    const el = document.getElementById('statusLabel');
-    el.textContent = any ? '● LIVE' : '● OFFLINE';
-    el.className = any ? 'connection-status live' : 'connection-status';
+function addSystemMessage(platform, text) {
+  addMessage({ platform, author: '🔧 SYSTEM', text, timestamp: new Date() });
+}
+
+function renderMessages() {
+  const feed = document.getElementById('chatFeed');
+  const filtered = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter);
+  
+  feed.innerHTML = filtered.map(msg => `
+    <div class="msg">
+      <div class="msg-platform ${msg.platform}">
+        ${msg.platform === 'yt' ? '▶' : '🎮'}
+      </div>
+      <div class="msg-body">
+        <div class="msg-meta">
+          <span class="msg-author">${escapeHtml(msg.author)}</span>
+          <span class="msg-time">${formatTime(msg.timestamp)}</span>
+        </div>
+        <div class="msg-text">${escapeHtml(msg.text)}</div>
+      </div>
+    </div>
+  `).join('');
+  
+  document.getElementById('msgCount').textContent = `${filtered.length} msg`;
+}
+
+function updateUI() {
+  // YouTube UI
+  const ytCard = document.getElementById('ytCard');
+  if (state.yt.connected) {
+    ytCard.classList.add('connected-yt');
+    document.getElementById('ytChannelName').textContent = state.yt.channelName || 'Live';
+    document.getElementById('ytViewers').textContent = state.yt.viewers || '—';
+    document.getElementById('ytBtn').textContent = 'Disconnect';
+    document.getElementById('ytBtn').onclick = disconnectYouTube;
+  } else {
+    ytCard.classList.remove('connected-yt');
+    document.getElementById('ytChannelName').textContent = '—';
+    document.getElementById('ytViewers').textContent = '—';
+    document.getElementById('ytBtn').textContent = 'Connect';
+    document.getElementById('ytBtn').onclick = () => openModal('ytModal');
+  }
+  
+  // Twitch UI
+  const twCard = document.getElementById('twCard');
+  if (state.tw.connected) {
+    twCard.classList.add('connected-tw');
+    document.getElementById('twChannelName').textContent = state.tw.channel || '—';
+    document.getElementById('twViewers').textContent = state.tw.viewers || '—';
+    document.getElementById('twBtn').textContent = 'Disconnect';
+    document.getElementById('twBtn').onclick = disconnectTwitch;
+  } else {
+    twCard.classList.remove('connected-tw');
+    document.getElementById('twChannelName').textContent = '—';
+    document.getElementById('twViewers').textContent = '—';
+    document.getElementById('twBtn').textContent = 'Connect';
+    document.getElementById('twBtn').onclick = () => openModal('twModal');
+  }
+  
+  const anyConnected = state.yt.connected || state.tw.connected;
+  const statusEl = document.getElementById('statusLabel');
+  statusEl.textContent = anyConnected ? '● LIVE' : '● OFFLINE';
+  statusEl.className = anyConnected ? 'connection-status live' : 'connection-status';
+  
+  const total = (state.yt.viewers || 0) + (state.tw.viewers || 0);
+  document.getElementById('totalViewers').textContent = total;
+}
+
+function disconnectYouTube() {
+  state.yt.connected = false;
+  state.yt.accessToken = null;
+  localStorage.removeItem('streamdock_yt');
+  updateUI();
+  addSystemMessage('yt', '❌ YouTube disconnesso');
+}
+
+function disconnectTwitch() {
+  if (state.tw.ws) state.tw.ws.close();
+  state.tw.connected = false;
+  localStorage.removeItem('streamdock_tw');
+  updateUI();
+  addSystemMessage('tw', '❌ Twitch disconnesso');
+}
+
+function setFilter(filter) {
+  state.filter = filter;
+  renderMessages();
+  
+  // Aggiorna stile bottoni
+  ['all', 'yt', 'tw'].forEach(f => {
+    const btn = document.getElementById(`f-${f}`);
+    if (btn) btn.className = `filter-pill ${filter === f ? `active-${f}` : ''}`;
+  });
+}
+
+// ========== UTILS ==========
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatTime(date) {
+  return new Date(date).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 }
 
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-function setFilter(f) { state.filter = f; }
+
+// Esponi funzioni globali
+window.connectYT = connectYT;
+window.connectTwitch = connectTwitch;
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.setFilter = setFilter;
+window.disconnectYouTube = disconnectYouTube;
+window.disconnectTwitch = disconnectTwitch;
 </script>
-</body>
-</html>
-```
