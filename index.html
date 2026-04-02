@@ -1,345 +1,819 @@
-<script>
-// ========== CONFIGURAZIONE ==========
-const WORKER_URL = "https://streamdockedo.edoardo-melzi.workers.dev";
-
-// ========== STATO ==========
-let state = {
-  yt: { connected: false, accessToken: null, refreshToken: null, liveChatId: null, channelName: null, viewers: 0 },
-  tw: { connected: false, channel: null, viewers: 0, ws: null },
-  messages: [],
-  filter: 'all'
-};
-
-// ========== CARICAMENTO TOKEN SALVATI ==========
-window.addEventListener('DOMContentLoaded', async () => {
-  // Carica token YouTube salvati
-  const savedYT = localStorage.getItem('streamdock_yt');
-  if (savedYT) {
-    const data = JSON.parse(savedYT);
-    state.yt.accessToken = data.accessToken;
-    state.yt.refreshToken = data.refreshToken;
-    
-    // Verifica se il token è scaduto e prova a fare refresh
-    if (data.expiresAt && Date.now() > data.expiresAt) {
-      await refreshYouTubeToken();
-    } else {
-      await connectYouTubeWithToken();
-    }
-  }
-  
-  // Carica dati Twitch salvati
-  const savedTW = localStorage.getItem('streamdock_tw');
-  if (savedTW) {
-    const data = JSON.parse(savedTW);
-    state.tw.channel = data.channel;
-    await connectTwitchWithToken();
-  }
-  
-  updateUI();
-});
-
-// ========== YOUTUBE: LOGIN ==========
-async function connectYT() {
-  const clientId = document.getElementById('ytClientId').value.trim();
-  if (!clientId) return;
-  
-  localStorage.setItem('streamdock_yt_client_id', clientId);
-  closeModal('ytModal');
-  
-  // Costruisci URL OAuth
-  const scope = "https://www.googleapis.com/auth/youtube.readonly";
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: `${WORKER_URL}/token`,
-    response_type: 'code',
-    scope: scope,
-    access_type: 'offline',
-    prompt: 'consent'
-  });
-  
-  // Apri popup OAuth
-  const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
-  
-  // Attendi il callback dal Worker
-  window.addEventListener('message', async (event) => {
-    if (event.data.type === 'yt_token') {
-      state.yt.accessToken = event.data.access_token;
-      state.yt.refreshToken = event.data.refresh_token;
-      
-      // Salva in localStorage con scadenza
-      localStorage.setItem('streamdock_yt', JSON.stringify({
-        accessToken: state.yt.accessToken,
-        refreshToken: state.yt.refreshToken,
-        expiresAt: Date.now() + (event.data.expires_in * 1000)
-      }));
-      
-      await connectYouTubeWithToken();
-      popup.close();
-    }
-  });
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamDock</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080808;
+  --surface: #0f0f0f;
+  --surface2: #161616;
+  --border: #222222;
+  --border2: #2a2a2a;
+  --yt: #ff2020;
+  --yt-soft: rgba(255,32,32,0.12);
+  --tw: #9146ff;
+  --tw-soft: rgba(145,70,255,0.12);
+  --text: #f0f0f0;
+  --text-dim: #666;
+  --text-mid: #999;
+  --green: #00e676;
+  --gold: #ffd600;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
 }
 
-// ========== YOUTUBE: CONNESSIONE CON TOKEN ==========
-async function connectYouTubeWithToken() {
-  if (!state.yt.accessToken) return;
-  
-  try {
-    // Ottieni info canale
-    const channelRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', {
-      headers: { 'Authorization': `Bearer ${state.yt.accessToken}` }
-    });
-    const channelData = await channelRes.json();
-    
-    if (channelData.items && channelData.items[0]) {
-      state.yt.channelName = channelData.items[0].snippet.title;
-      state.yt.connected = true;
-      
-      // Ottieni liveChatId
-      const liveRes = await fetch('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet&broadcastStatus=active&mine=true', {
-        headers: { 'Authorization': `Bearer ${state.yt.accessToken}` }
-      });
-      const liveData = await liveRes.json();
-      
-      if (liveData.items && liveData.items[0]) {
-        state.yt.liveChatId = liveData.items[0].snippet.liveChatId;
-        startYouTubePolling();
-      }
-    }
-    
-    updateUI();
-    addSystemMessage('yt', '✅ YouTube connesso (salvato permanentemente)');
-  } catch (error) {
-    console.error('YouTube connection error:', error);
-    if (error.status === 401) await refreshYouTubeToken();
-  }
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
 }
 
-// ========== YOUTUBE: REFRESH TOKEN ==========
-async function refreshYouTubeToken() {
-  if (!state.yt.refreshToken) return;
-  
-  const response = await fetch(`${WORKER_URL}/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: state.yt.refreshToken })
-  });
-  
-  const data = await response.json();
-  if (data.access_token) {
-    state.yt.accessToken = data.access_token;
-    localStorage.setItem('streamdock_yt', JSON.stringify({
-      accessToken: state.yt.accessToken,
-      refreshToken: state.yt.refreshToken,
-      expiresAt: Date.now() + (data.expires_in * 1000)
-    }));
-    await connectYouTubeWithToken();
-  }
+.header {
+  flex-shrink: 0;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
-// ========== YOUTUBE: POLLING MESSAGGI ==========
-function startYouTubePolling() {
-  setInterval(async () => {
-    if (!state.yt.liveChatId || !state.yt.accessToken) return;
-    
-    const response = await fetch(`${WORKER_URL}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: state.yt.accessToken,
-        liveChatId: state.yt.liveChatId
-      })
-    });
-    
-    const data = await response.json();
-    if (data.items) {
-      data.items.forEach(item => {
-        addMessage({
-          platform: 'yt',
-          author: item.authorDetails.displayName,
-          text: item.snippet.displayMessage,
-          timestamp: new Date(item.snippet.publishedAt)
-        });
-      });
-      
-      // Aggiorna viewer count
-      if (data.pollingIntervalMillis) {
-        state.yt.viewers = Math.floor(Math.random() * 50) + 10; // Sostituisci con viewer reali
-        updateUI();
-      }
-    }
-  }, 5000);
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
-// ========== TWITCH: CONNESSIONE ==========
-async function connectTwitch() {
-  const clientId = document.getElementById('twClientId').value;
-  const channel = document.getElementById('twChannel').value;
-  if (!clientId || !channel) return;
-  
-  closeModal('twModal');
-  
-  // Salva configurazione
-  localStorage.setItem('streamdock_tw', JSON.stringify({ clientId, channel }));
-  state.tw.channel = channel;
-  state.tw.clientId = clientId;
-  
-  // Connetti via IRC
-  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-  state.tw.ws = ws;
-  
-  ws.onopen = () => {
-    ws.send('CAP REQ :twitch.tv/tags');
-    ws.send('NICK justinfan123');
-    ws.send(`JOIN #${channel}`);
-    state.tw.connected = true;
-    updateUI();
-    addSystemMessage('tw', `✅ Twitch connesso al canale #${channel}`);
-  };
-  
-  ws.onmessage = (event) => {
-    const message = event.data;
-    if (message.includes('PRIVMSG')) {
-      const match = message.match(/:([^!]+)![^@]+@[^ ]+ PRIVMSG #[^ ]+ :(.+)/);
-      if (match) {
-        addMessage({
-          platform: 'tw',
-          author: match[1],
-          text: match[2],
-          timestamp: new Date()
-        });
-      }
-    }
-  };
-  
-  ws.onerror = (error) => {
-    console.error('Twitch WebSocket error:', error);
-    state.tw.connected = false;
-    updateUI();
-  };
+.brand {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  text-transform: uppercase;
 }
 
-// ========== UI HELPERS ==========
-function addMessage(msg) {
-  state.messages.unshift(msg);
-  if (state.messages.length > 200) state.messages.pop();
-  renderMessages();
+.connection-status {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
 }
 
-function addSystemMessage(platform, text) {
-  addMessage({ platform, author: '🔧 SYSTEM', text, timestamp: new Date() });
+.connection-status.live { color: var(--green); }
+
+.platforms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
-function renderMessages() {
-  const feed = document.getElementById('chatFeed');
-  const filtered = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter);
-  
-  feed.innerHTML = filtered.map(msg => `
-    <div class="msg">
-      <div class="msg-platform ${msg.platform}">
-        ${msg.platform === 'yt' ? '▶' : '🎮'}
-      </div>
-      <div class="msg-body">
-        <div class="msg-meta">
-          <span class="msg-author">${escapeHtml(msg.author)}</span>
-          <span class="msg-time">${formatTime(msg.timestamp)}</span>
+.platform-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.2s;
+}
+
+.platform-card.connected-yt { border-color: rgba(255,32,32,0.4); background: var(--yt-soft); }
+.platform-card.connected-tw { border-color: rgba(145,70,255,0.4); background: var(--tw-soft); }
+
+.plat-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.plat-icon {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.plat-icon.yt { background: var(--yt); }
+.plat-icon.tw { background: var(--tw); }
+
+.plat-icon svg { width: 13px; height: 13px; fill: white; }
+
+.plat-info { display: flex; flex-direction: column; gap: 1px; }
+
+.plat-name {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: var(--text-mid);
+  text-transform: uppercase;
+}
+
+.plat-channel {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+
+.plat-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+
+.viewer-count {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+}
+
+.viewer-count.yt-color { color: var(--yt); }
+.viewer-count.tw-color { color: var(--tw); }
+
+.viewer-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.connect-btn {
+  background: none;
+  border: 1px solid var(--border2);
+  color: var(--text-mid);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.15s;
+}
+
+.connect-btn:hover { border-color: var(--text-mid); color: var(--text); }
+.connect-btn.yt:hover { border-color: var(--yt); color: var(--yt); }
+.connect-btn.tw:hover { border-color: var(--tw); color: var(--tw); }
+.connect-btn.disconnect { border-color: rgba(255,255,255,0.1); color: var(--text-dim); }
+.connect-btn.disconnect:hover { border-color: #ff4444; color: #ff4444; }
+
+.filter-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.filter-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: none;
+  user-select: none;
+}
+
+.filter-pill:hover { border-color: var(--text-dim); color: var(--text-mid); }
+.filter-pill.active-all { border-color: var(--text-mid); color: var(--text); }
+.filter-pill.active-yt { border-color: var(--yt); color: var(--yt); background: var(--yt-soft); }
+.filter-pill.active-tw { border-color: var(--tw); color: var(--tw); background: var(--tw-soft); }
+
+.filter-spacer { flex: 1; }
+
+.msg-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.chat-feed {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  scroll-behavior: smooth;
+}
+
+.chat-feed::-webkit-scrollbar { width: 3px; }
+.chat-feed::-webkit-scrollbar-track { background: transparent; }
+.chat-feed::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.msg {
+  display: flex;
+  gap: 8px;
+  padding: 4px 12px;
+  transition: background 0.15s;
+  animation: fadeSlideIn 0.2s ease;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.msg:hover { background: var(--surface); }
+
+.msg-platform {
+  flex-shrink: 0;
+  margin-top: 2px;
+  width: 14px; height: 14px;
+  border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.msg-platform.yt { background: var(--yt); }
+.msg-platform.tw { background: var(--tw); }
+
+.msg-body { flex: 1; min-width: 0; }
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 1px;
+}
+
+.msg-author {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.msg-time {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.msg-text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: #ddd;
+  word-break: break-word;
+}
+
+.msg.event {
+  background: var(--surface2);
+  border-left: 2px solid transparent;
+  margin: 3px 8px;
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px;
+}
+
+.msg.event-sub { border-left-color: var(--tw); }
+.msg.event-resub { border-left-color: #b388ff; }
+.msg.event-bits { border-left-color: var(--gold); }
+.msg.event-member { border-left-color: var(--yt); }
+.msg.event-superchat { border-left-color: #00e5ff; }
+.msg.event-gift { border-left-color: #ff80ab; }
+.msg.event-raid { border-left-color: #ff9800; }
+.msg.event-reward { border-left-color: #00bcd4; }
+.msg.event-hype { border-left-color: #e91e63; }
+
+.event-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-bottom: 3px;
+  font-weight: 500;
+}
+
+.badge-sub    { background: rgba(145,70,255,0.2); color: var(--tw); }
+.badge-resub  { background: rgba(179,136,255,0.2); color: #b388ff; }
+.badge-bits   { background: rgba(255,214,0,0.15); color: var(--gold); }
+.badge-member { background: rgba(255,32,32,0.15); color: var(--yt); }
+.badge-superchat { background: rgba(0,229,255,0.15); color: #00e5ff; }
+.badge-gift   { background: rgba(255,128,171,0.15); color: #ff80ab; }
+.badge-raid   { background: rgba(255,152,0,0.15); color: #ff9800; }
+.badge-reward { background: rgba(0,188,212,0.15); color: #00bcd4; }
+.badge-hype   { background: rgba(233,30,99,0.15); color: #e91e63; }
+
+.event-main {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.event-amount {
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.event-message {
+  font-size: 11.5px;
+  color: var(--text-mid);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal-overlay.hidden { display: none; }
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 20px;
+  width: 320px;
+  max-width: 90vw;
+}
+
+.modal-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+.modal-title span { color: var(--text); }
+
+.field { margin-bottom: 12px; }
+
+.field label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+
+.field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.field input:focus { border-color: var(--text-mid); }
+
+.modal-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 14px;
+  padding: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  border-left: 2px solid var(--border2);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btn {
+  padding: 7px 14px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.btn-cancel {
+  background: var(--surface2);
+  color: var(--text-mid);
+  border: 1px solid var(--border2);
+}
+
+.btn-yt { background: var(--yt); color: white; }
+.btn-tw { background: var(--tw); color: white; }
+
+.scroll-lock {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.total-viewers {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+}
+
+.total-viewers strong { color: var(--text); font-weight: 500; }
+
+.demo-banner {
+  flex-shrink: 0;
+  background: rgba(255,214,0,0.08);
+  border-bottom: 1px solid rgba(255,214,0,0.2);
+  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.demo-banner span {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(255,214,0,0.7);
+}
+
+.demo-close {
+  background: none;
+  border: none;
+  color: rgba(255,214,0,0.5);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+}
+
+.demo-close:hover { color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div class="modal-overlay hidden" id="ytModal">
+  <div class="modal">
+    <div class="modal-title">Connect — <span>YouTube</span></div>
+    <div class="modal-hint">
+      Inserisci il tuo Client ID Google. Verrai reindirizzato per l'autorizzazione.
+    </div>
+    <div class="field">
+      <label>Client ID (Google OAuth)</label>
+      <input type="text" id="ytClientId" placeholder="xxxx.apps.googleusercontent.com">
+    </div>
+    <div class="field">
+      <label>Video / Live ID (opzionale)</label>
+      <input type="text" id="ytVideoId" placeholder="lascia vuoto per auto-detect">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('ytModal')">Annulla</button>
+      <button class="btn btn-yt" onclick="connectYT()">Connetti</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="twModal">
+  <div class="modal">
+    <div class="modal-title">Connect — <span>Twitch</span></div>
+    <div class="modal-hint">
+      Inserisci il tuo Client ID Twitch e il nome del canale.
+    </div>
+    <div class="field">
+      <label>Client ID (Twitch Dev)</label>
+      <input type="text" id="twClientId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+    </div>
+    <div class="field">
+      <label>Nome canale Twitch</label>
+      <input type="text" id="twChannel" placeholder="il_tuo_canale">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('twModal')">Annulla</button>
+      <button class="btn btn-tw" onclick="connectTwitch()">Connetti</button>
+    </div>
+  </div>
+</div>
+
+<div class="demo-banner" id="demoBanner">
+  <span>⚡ Modalità demo — connetti una piattaforma per dati reali</span>
+  <button class="demo-close" onclick="document.getElementById('demoBanner').style.display='none'">✕</button>
+</div>
+
+<div class="header">
+  <div class="header-top">
+    <div class="brand">StreamDock</div>
+    <div class="connection-status" id="statusLabel">● OFFLINE</div>
+  </div>
+  <div class="platforms">
+    <div class="platform-card" id="ytCard">
+      <div class="plat-left">
+        <div class="plat-icon yt">
+          <svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg>
         </div>
-        <div class="msg-text">${escapeHtml(msg.text)}</div>
+        <div class="plat-info">
+          <div class="plat-name">YouTube</div>
+          <div class="plat-channel" id="ytChannelName">—</div>
+        </div>
+      </div>
+      <div class="plat-right">
+        <div class="viewer-count yt-color" id="ytViewers">—</div>
+        <div class="viewer-label">viewers</div>
+        <button class="connect-btn yt" id="ytBtn" onclick="openModal('ytModal')">Connect</button>
       </div>
     </div>
-  `).join('');
-  
-  document.getElementById('msgCount').textContent = `${filtered.length} msg`;
-}
+    <div class="platform-card" id="twCard">
+      <div class="plat-left">
+        <div class="plat-icon tw">
+          <svg viewBox="0 0 24 24"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg>
+        </div>
+        <div class="plat-info">
+          <div class="plat-name">Twitch</div>
+          <div class="plat-channel" id="twChannelName">—</div>
+        </div>
+      </div>
+      <div class="plat-right">
+        <div class="viewer-count tw-color" id="twViewers">—</div>
+        <div class="viewer-label">viewers</div>
+        <button class="connect-btn tw" id="twBtn" onclick="openModal('twModal')">Connect</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-function updateUI() {
-  // YouTube UI
-  const ytCard = document.getElementById('ytCard');
-  if (state.yt.connected) {
-    ytCard.classList.add('connected-yt');
-    document.getElementById('ytChannelName').textContent = state.yt.channelName || 'Live';
-    document.getElementById('ytViewers').textContent = state.yt.viewers || '—';
-    document.getElementById('ytBtn').textContent = 'Disconnect';
-    document.getElementById('ytBtn').onclick = disconnectYouTube;
-  } else {
-    ytCard.classList.remove('connected-yt');
-    document.getElementById('ytChannelName').textContent = '—';
-    document.getElementById('ytViewers').textContent = '—';
-    document.getElementById('ytBtn').textContent = 'Connect';
-    document.getElementById('ytBtn').onclick = () => openModal('ytModal');
+<div class="filter-bar">
+  <button class="filter-pill active-all" id="f-all" onclick="setFilter('all')">Tutti</button>
+  <button class="filter-pill" id="f-yt" onclick="setFilter('yt')">YouTube</button>
+  <button class="filter-pill" id="f-tw" onclick="setFilter('tw')">Twitch</button>
+  <div class="filter-spacer"></div>
+  <div class="msg-count" id="msgCount">0 msg</div>
+</div>
+
+<div class="chat-feed" id="chatFeed"></div>
+
+<div class="scroll-lock">
+  <div class="total-viewers">Totale: <strong id="totalViewers">—</strong> viewers</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  CONFIGURAZIONE WORKER CLOUDFLARE
+// ═══════════════════════════════════════════════════════
+const WORKER_URL = 'https://streamdockedo.edoardo-melzi.workers.dev';
+
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+const CONFIG = {
+  twitch: { clientId: '', channel: '', accessToken: '' },
+  youtube: { clientId: '', videoId: '', accessToken: '', refreshToken: '' }
+};
+
+const state = {
+  filter: 'all',
+  messages: [],
+  msgId: 0,
+  ytConnected: false,
+  twConnected: false,
+  ytViewers: null,
+  twViewers: null,
+  demoMode: true,
+  twitchWS: null,
+  ytPollInterval: null,
+  viewerInterval: null
+};
+
+const AUTHOR_COLORS = ['#ff6b6b','#ffa94d','#ffd43b','#69db7c','#4dabf7','#cc5de8','#f783ac','#63e6be','#748ffc','#ff8787'];
+const colorCache = {};
+
+function getAuthorColor(name) {
+  if (!colorCache[name]) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % AUTHOR_COLORS.length;
+    colorCache[name] = AUTHOR_COLORS[h];
   }
-  
-  // Twitch UI
-  const twCard = document.getElementById('twCard');
-  if (state.tw.connected) {
-    twCard.classList.add('connected-tw');
-    document.getElementById('twChannelName').textContent = state.tw.channel || '—';
-    document.getElementById('twViewers').textContent = state.tw.viewers || '—';
-    document.getElementById('twBtn').textContent = 'Disconnect';
-    document.getElementById('twBtn').onclick = disconnectTwitch;
-  } else {
-    twCard.classList.remove('connected-tw');
-    document.getElementById('twChannelName').textContent = '—';
-    document.getElementById('twViewers').textContent = '—';
-    document.getElementById('twBtn').textContent = 'Connect';
-    document.getElementById('twBtn').onclick = () => openModal('twModal');
-  }
-  
-  const anyConnected = state.yt.connected || state.tw.connected;
-  const statusEl = document.getElementById('statusLabel');
-  statusEl.textContent = anyConnected ? '● LIVE' : '● OFFLINE';
-  statusEl.className = anyConnected ? 'connection-status live' : 'connection-status';
-  
-  const total = (state.yt.viewers || 0) + (state.tw.viewers || 0);
-  document.getElementById('totalViewers').textContent = total;
-}
-
-function disconnectYouTube() {
-  state.yt.connected = false;
-  state.yt.accessToken = null;
-  localStorage.removeItem('streamdock_yt');
-  updateUI();
-  addSystemMessage('yt', '❌ YouTube disconnesso');
-}
-
-function disconnectTwitch() {
-  if (state.tw.ws) state.tw.ws.close();
-  state.tw.connected = false;
-  localStorage.removeItem('streamdock_tw');
-  updateUI();
-  addSystemMessage('tw', '❌ Twitch disconnesso');
-}
-
-function setFilter(filter) {
-  state.filter = filter;
-  renderMessages();
-  
-  // Aggiorna stile bottoni
-  ['all', 'yt', 'tw'].forEach(f => {
-    const btn = document.getElementById(`f-${f}`);
-    if (btn) btn.className = `filter-pill ${filter === f ? `active-${f}` : ''}`;
-  });
-}
-
-// ========== UTILS ==========
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function formatTime(date) {
-  return new Date(date).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return colorCache[name];
 }
 
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
-// Esponi funzioni globali
-window.connectYT = connectYT;
-window.connectTwitch = connectTwitch;
-window.openModal = openModal;
-window.closeModal = closeModal;
-window.setFilter = setFilter;
-window.disconnectYouTube = disconnectYouTube;
-window.disconnectTwitch = disconnectTwitch;
-</script>
+function setFilter(f) {
+  state.filter = f;
+  ['all','yt','tw'].forEach(k => {
+    const el = document.getElementById('f-'+k);
+    if (el) el.className = 'filter-pill' + (k === f ? (f==='all'?' active-all':f==='yt'?' active-yt':' active-tw') : '');
+  });
+  renderAll();
+}
+
+const feed = document.getElementById('chatFeed');
+let isPaused = false;
+
+feed.addEventListener('scroll', () => {
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+  isPaused = !atBottom;
+});
+
+function scrollBottom() {
+  if (!isPaused) feed.scrollTop = feed.scrollHeight;
+}
+
+const YT_SVG = `<svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg>`;
+const TW_SVG = `<svg viewBox="0 0 24 24"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg>`;
+
+function renderMessage(msg) {
+  const div = document.createElement('div');
+  const now = new Date(msg.ts);
+  const timeStr = now.toTimeString().slice(0,5);
+
+  if (msg.type === 'chat') {
+    div.className = `msg`;
+    div.dataset.platform = msg.platform;
+    div.innerHTML = `
+      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
+      <div class="msg-body">
+        <div class="msg-meta">
+          <span class="msg-author" style="color:${getAuthorColor(msg.author)}">${escapeHtml(msg.author)}</span>
+          <span class="msg-time">${timeStr}</span>
+        </div>
+        <div class="msg-text">${escapeHtml(msg.text)}</div>
+      </div>`;
+  } else {
+    const evConf = eventConfig(msg);
+    div.className = `msg event event-${msg.subtype}`;
+    div.dataset.platform = msg.platform;
+    div.innerHTML = `
+      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
+      <div class="msg-body">
+        <div><span class="event-badge badge-${msg.subtype}">${evConf.icon} ${evConf.label}</span></div>
+        <div class="event-main">${evConf.main(msg)}</div>
+        ${msg.message ? `<div class="event-message">"${escapeHtml(msg.message)}"</div>` : ''}
+      </div>`;
+  }
+  return div;
+}
+
+function eventConfig(msg) {
+  const map = {
+    sub:       { icon:'★', label:'SUB',       main: m => `<strong>${escapeHtml(m.author)}</strong> si è abbonato! ${m.tier ? `(Tier ${m.tier})` : ''}` },
+    resub:     { icon:'↩', label:'RESUB',     main: m => `<strong>${escapeHtml(m.author)}</strong> rinnova per ${m.months} mesi` },
+    bits:      { icon:'◆', label:'BITS',      main: m => `<strong>${escapeHtml(m.author)}</strong> ha donato <span class="event-amount" style="color:var(--gold)">${m.amount} Bits</span>` },
+    gift:      { icon:'♡', label:'GIFT SUB',  main: m => `<strong>${escapeHtml(m.author)}</strong> ha regalato ${m.amount || 1} sub${m.recipient ? ` a ${escapeHtml(m.recipient)}` : ''}` },
+    member:    { icon:'●', label:'MEMBRO YT', main: m => `<strong>${escapeHtml(m.author)}</strong> è diventato membro!` },
+    superchat: { icon:'⚡',label:'SUPERCHAT', main: m => `<strong>${escapeHtml(m.author)}</strong> — <span class="event-amount" style="color:#00e5ff">${m.amount}</span>` },
+    raid:    { icon:'⚔', label:'RAID',    main: m => `<strong>${escapeHtml(m.author)}</strong> sta raidando con <span class="event-amount" style="color:#ff9800">${m.amount} spettatori</span>!` },
+    reward:  { icon:'🎯', label:'REWARD',  main: m => `<strong>${escapeHtml(m.author)}</strong> ha riscattato: <em>${escapeHtml(m.rewardTitle || 'Channel Point Reward')}</em>` },
+    hype:    { icon:'🔥', label:'HYPE TRAIN', main: m => `Hype Train Livello <span class="event-amount" style="color:#e91e63">${m.level}</span>!` },
+  };
+  return map[msg.subtype] || { icon:'◉', label:'EVENT', main: m => escapeHtml(m.author) };
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function addMessage(msg) {
+  msg.id = ++state.msgId;
+  msg.ts = msg.ts || Date.now();
+  state.messages.push(msg);
+  if (state.messages.length > 500) state.messages.shift();
+
+  if (state.filter === 'all' || state.filter === msg.platform) {
+    feed.appendChild(renderMessage(msg));
+    scrollBottom();
+  }
+  updateMsgCount();
+}
+
+function updateMsgCount() {
+  const visible = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter).length;
+  document.getElementById('msgCount').textContent = visible + ' msg';
+}
+
+function renderAll() {
+  feed.innerHTML = '';
+  const filtered = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter);
+  filtered.forEach(m => feed.appendChild(renderMessage(m)));
+  updateMsgCount();
+  scrollBottom();
+}
+
+function updateViewerUI() {
+  const yv = state.ytViewers;
+  const tv = state.twViewers;
+  document.getElementById('ytViewers').textContent = yv !== null ? yv.toLocaleString('it') : '—';
+  document.getElementById('twViewers').textContent = tv !== null ? tv.toLocaleString('it') : '—';
+  const total = (yv || 0) + (tv || 0);
+  document.getElementById('totalViewers').textContent = (yv !== null || tv !== null) ? total.toLocaleString('it') : '—';
+
+  const anyLive = state.ytConnected || state.twConnected;
+  const statusEl = document.getElementById('statusLabel');
+  statusEl.textContent = anyLive ? '● LIVE' : '● OFFLINE';
+  statusEl.className = 'connection-status' + (anyLive ? ' live' : '');
+}
+
+// ═══════════════════════════════════════════════════════
+//  TWITCH
+// ═══════════════════════════════════════════════════════
+function connectTwitch() {
+  const clientId = document.getElementById('twClientId').value.trim();
+  const channel  = document.getElementById('twChannel').value.trim().toLowerCase();
+  if (!clientId || !channel) { alert('Inserisci Client ID e nome canale'); return; }
+
+  CONFIG.twitch.clientId = clientId;
+  CONFIG.twitch.channel = channel;
+
+  closeModal('twModal');
+
+  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  const scopes = 'chat:read channel:read:subscriptions bits:read channel:read:redemptions channel:read:hype_train';
+  const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}`;
+
+  const popup = window.open(authUrl, 'twitch_auth', 'width=600,height=700');
+
+  const timer = setInterval(() => {
+    try {
+      const hash = popup.location.hash;
+      if (hash && hash.includes('access_token')) {
+        clearInterval(timer);
+        popup.close();
+        const params = new URLSearchParams(hash.slice(1));
+        const token = params.get('access_token');
+        CONFIG.twitch.accessToken = token;
+        saveCredentials();
+        initTwitchIRC(channel, token);
+        initTwitchEventSub(clientId, token, channel);
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+function initTwitchIRC(channel, token) {
+  if (state.twitchWS) state.twitchWS.close();
+
+  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  state.twitchWS = ws;
+
+  ws.onopen = () => {
+    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+    ws.send(`PASS oauth:${token}`);
+    ws.send(`NICK justinfan${Math.floor(Math.random()*99999)}`);
+    ws.send(`JOIN #${channel}`);
+  };
+
+  ws.onmessage = (e) => {
+    const raw = e.data;
+    const lines = raw.split('\r\n').filter(Boolean);
+
+    lines.forEach(line => {
+      if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+
+      let tags = {};
+      let rest = line;
+      if (line.startsWith('@')) {
+        const spIdx = line.indexOf(' ');
+        const tagStr = line.slice(1, spIdx);
+        rest = line.slice(spIdx+1);
+        tagStr.split(';').forEach(t => {
+          const [k,v] = t.split('=');
+          tags[k] = v;
+        });
+      }
+
+      if (rest.includes('PRIVMSG')) {
+        const nickMatch = rest.match(/
