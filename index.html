@@ -491,15 +491,11 @@ body {
   <div class="modal">
     <div class="modal-title">Connect — <span>YouTube</span></div>
     <div class="modal-hint">
-      Inserisci il tuo Client ID Google. Verrai reindirizzato per l'autorizzazione.
+      Inserisci il tuo Client ID Google.
     </div>
     <div class="field">
       <label>Client ID (Google OAuth)</label>
       <input type="text" id="ytClientId" placeholder="xxxx.apps.googleusercontent.com">
-    </div>
-    <div class="field">
-      <label>Video / Live ID (opzionale)</label>
-      <input type="text" id="ytVideoId" placeholder="lascia vuoto per auto-detect">
     </div>
     <div class="modal-actions">
       <button class="btn btn-cancel" onclick="closeModal('ytModal')">Annulla</button>
@@ -590,182 +586,104 @@ body {
 </div>
 
 <script>
-// ═══════════════════════════════════════════════════════
-//  CONFIGURAZIONE WORKER CLOUDFLARE
-// ═══════════════════════════════════════════════════════
 const WORKER_URL = 'https://streamdockedo.edoardo-melzi.workers.dev';
 
-// ═══════════════════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════════════════
-const CONFIG = {
-  twitch: { clientId: '', channel: '', accessToken: '' },
-  youtube: { clientId: '', videoId: '', accessToken: '', refreshToken: '' }
-};
-
-const state = {
+let state = {
   filter: 'all',
   messages: [],
-  msgId: 0,
   ytConnected: false,
   twConnected: false,
   ytViewers: null,
   twViewers: null,
-  demoMode: true,
   twitchWS: null,
-  ytPollInterval: null,
-  viewerInterval: null
+  demoInterval: null
 };
 
-const AUTHOR_COLORS = ['#ff6b6b','#ffa94d','#ffd43b','#69db7c','#4dabf7','#cc5de8','#f783ac','#63e6be','#748ffc','#ff8787'];
-const colorCache = {};
-
-function getAuthorColor(name) {
-  if (!colorCache[name]) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % AUTHOR_COLORS.length;
-    colorCache[name] = AUTHOR_COLORS[h];
-  }
-  return colorCache[name];
+function openModal(id) {
+  document.getElementById(id).classList.remove('hidden');
 }
 
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+}
 
 function setFilter(f) {
   state.filter = f;
-  ['all','yt','tw'].forEach(k => {
-    const el = document.getElementById('f-'+k);
-    if (el) el.className = 'filter-pill' + (k === f ? (f==='all'?' active-all':f==='yt'?' active-yt':' active-tw') : '');
-  });
-  renderAll();
+  renderMessages();
 }
 
-const feed = document.getElementById('chatFeed');
-let isPaused = false;
-
-feed.addEventListener('scroll', () => {
-  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
-  isPaused = !atBottom;
-});
-
-function scrollBottom() {
-  if (!isPaused) feed.scrollTop = feed.scrollHeight;
-}
-
-const YT_SVG = `<svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg>`;
-const TW_SVG = `<svg viewBox="0 0 24 24"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg>`;
-
-function renderMessage(msg) {
-  const div = document.createElement('div');
-  const now = new Date(msg.ts);
-  const timeStr = now.toTimeString().slice(0,5);
-
-  if (msg.type === 'chat') {
-    div.className = `msg`;
-    div.dataset.platform = msg.platform;
-    div.innerHTML = `
-      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
-      <div class="msg-body">
-        <div class="msg-meta">
-          <span class="msg-author" style="color:${getAuthorColor(msg.author)}">${escapeHtml(msg.author)}</span>
-          <span class="msg-time">${timeStr}</span>
-        </div>
-        <div class="msg-text">${escapeHtml(msg.text)}</div>
-      </div>`;
-  } else {
-    const evConf = eventConfig(msg);
-    div.className = `msg event event-${msg.subtype}`;
-    div.dataset.platform = msg.platform;
-    div.innerHTML = `
-      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
-      <div class="msg-body">
-        <div><span class="event-badge badge-${msg.subtype}">${evConf.icon} ${evConf.label}</span></div>
-        <div class="event-main">${evConf.main(msg)}</div>
-        ${msg.message ? `<div class="event-message">"${escapeHtml(msg.message)}"</div>` : ''}
-      </div>`;
-  }
-  return div;
-}
-
-function eventConfig(msg) {
-  const map = {
-    sub:       { icon:'★', label:'SUB',       main: m => `<strong>${escapeHtml(m.author)}</strong> si è abbonato! ${m.tier ? `(Tier ${m.tier})` : ''}` },
-    resub:     { icon:'↩', label:'RESUB',     main: m => `<strong>${escapeHtml(m.author)}</strong> rinnova per ${m.months} mesi` },
-    bits:      { icon:'◆', label:'BITS',      main: m => `<strong>${escapeHtml(m.author)}</strong> ha donato <span class="event-amount" style="color:var(--gold)">${m.amount} Bits</span>` },
-    gift:      { icon:'♡', label:'GIFT SUB',  main: m => `<strong>${escapeHtml(m.author)}</strong> ha regalato ${m.amount || 1} sub${m.recipient ? ` a ${escapeHtml(m.recipient)}` : ''}` },
-    member:    { icon:'●', label:'MEMBRO YT', main: m => `<strong>${escapeHtml(m.author)}</strong> è diventato membro!` },
-    superchat: { icon:'⚡',label:'SUPERCHAT', main: m => `<strong>${escapeHtml(m.author)}</strong> — <span class="event-amount" style="color:#00e5ff">${m.amount}</span>` },
-    raid:    { icon:'⚔', label:'RAID',    main: m => `<strong>${escapeHtml(m.author)}</strong> sta raidando con <span class="event-amount" style="color:#ff9800">${m.amount} spettatori</span>!` },
-    reward:  { icon:'🎯', label:'REWARD',  main: m => `<strong>${escapeHtml(m.author)}</strong> ha riscattato: <em>${escapeHtml(m.rewardTitle || 'Channel Point Reward')}</em>` },
-    hype:    { icon:'🔥', label:'HYPE TRAIN', main: m => `Hype Train Livello <span class="event-amount" style="color:#e91e63">${m.level}</span>!` },
+function addMessage(platform, author, text, type = 'chat', subtype = null) {
+  const msg = {
+    id: Date.now(),
+    platform,
+    author,
+    text,
+    type,
+    subtype,
+    ts: new Date()
   };
-  return map[msg.subtype] || { icon:'◉', label:'EVENT', main: m => escapeHtml(m.author) };
+  state.messages.unshift(msg);
+  if (state.messages.length > 500) state.messages.pop();
+  renderMessages();
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function addMessage(msg) {
-  msg.id = ++state.msgId;
-  msg.ts = msg.ts || Date.now();
-  state.messages.push(msg);
-  if (state.messages.length > 500) state.messages.shift();
-
-  if (state.filter === 'all' || state.filter === msg.platform) {
-    feed.appendChild(renderMessage(msg));
-    scrollBottom();
-  }
-  updateMsgCount();
-}
-
-function updateMsgCount() {
-  const visible = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter).length;
-  document.getElementById('msgCount').textContent = visible + ' msg';
-}
-
-function renderAll() {
-  feed.innerHTML = '';
+function renderMessages() {
+  const feed = document.getElementById('chatFeed');
   const filtered = state.messages.filter(m => state.filter === 'all' || m.platform === state.filter);
-  filtered.forEach(m => feed.appendChild(renderMessage(m)));
-  updateMsgCount();
-  scrollBottom();
+  
+  feed.innerHTML = filtered.map(msg => {
+    const timeStr = msg.ts.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    return `
+      <div class="msg">
+        <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? '▶' : '🎮'}</div>
+        <div class="msg-body">
+          <div class="msg-meta">
+            <span class="msg-author">${escapeHtml(msg.author)}</span>
+            <span class="msg-time">${timeStr}</span>
+          </div>
+          <div class="msg-text">${escapeHtml(msg.text)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  document.getElementById('msgCount').textContent = `${filtered.length} msg`;
+  document.getElementById('chatFeed').scrollTop = document.getElementById('chatFeed').scrollHeight;
 }
 
-function updateViewerUI() {
-  const yv = state.ytViewers;
-  const tv = state.twViewers;
-  document.getElementById('ytViewers').textContent = yv !== null ? yv.toLocaleString('it') : '—';
-  document.getElementById('twViewers').textContent = tv !== null ? tv.toLocaleString('it') : '—';
-  const total = (yv || 0) + (tv || 0);
-  document.getElementById('totalViewers').textContent = (yv !== null || tv !== null) ? total.toLocaleString('it') : '—';
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
+function updateUI() {
   const anyLive = state.ytConnected || state.twConnected;
   const statusEl = document.getElementById('statusLabel');
   statusEl.textContent = anyLive ? '● LIVE' : '● OFFLINE';
-  statusEl.className = 'connection-status' + (anyLive ? ' live' : '');
+  statusEl.className = anyLive ? 'connection-status live' : 'connection-status';
+  
+  document.getElementById('ytViewers').textContent = state.ytViewers !== null ? state.ytViewers : '—';
+  document.getElementById('twViewers').textContent = state.twViewers !== null ? state.twViewers : '—';
+  
+  const total = (state.ytViewers || 0) + (state.twViewers || 0);
+  document.getElementById('totalViewers').textContent = total || '—';
 }
 
-// ═══════════════════════════════════════════════════════
-//  TWITCH
-// ═══════════════════════════════════════════════════════
+// TWITCH
 function connectTwitch() {
   const clientId = document.getElementById('twClientId').value.trim();
-  const channel  = document.getElementById('twChannel').value.trim().toLowerCase();
+  const channel = document.getElementById('twChannel').value.trim().toLowerCase();
   if (!clientId || !channel) { alert('Inserisci Client ID e nome canale'); return; }
-
-  CONFIG.twitch.clientId = clientId;
-  CONFIG.twitch.channel = channel;
-
+  
   closeModal('twModal');
-
+  
   const redirectUri = window.location.href.split('?')[0].split('#')[0];
-  const scopes = 'chat:read channel:read:subscriptions bits:read channel:read:redemptions channel:read:hype_train';
+  const scopes = 'chat:read';
   const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}`;
-
+  
   const popup = window.open(authUrl, 'twitch_auth', 'width=600,height=700');
-
+  
   const timer = setInterval(() => {
     try {
       const hash = popup.location.hash;
@@ -774,10 +692,12 @@ function connectTwitch() {
         popup.close();
         const params = new URLSearchParams(hash.slice(1));
         const token = params.get('access_token');
-        CONFIG.twitch.accessToken = token;
-        saveCredentials();
+        
+        localStorage.setItem('twitch_token', token);
+        localStorage.setItem('twitch_channel', channel);
+        localStorage.setItem('twitch_client_id', clientId);
+        
         initTwitchIRC(channel, token);
-        initTwitchEventSub(clientId, token, channel);
       }
     } catch(e) {}
   }, 500);
@@ -785,35 +705,174 @@ function connectTwitch() {
 
 function initTwitchIRC(channel, token) {
   if (state.twitchWS) state.twitchWS.close();
-
+  
   const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
   state.twitchWS = ws;
-
+  
   ws.onopen = () => {
-    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+    ws.send('CAP REQ :twitch.tv/tags');
     ws.send(`PASS oauth:${token}`);
     ws.send(`NICK justinfan${Math.floor(Math.random()*99999)}`);
     ws.send(`JOIN #${channel}`);
+    state.twConnected = true;
+    document.getElementById('twChannelName').textContent = channel;
+    document.getElementById('twCard').classList.add('connected-tw');
+    document.getElementById('twBtn').textContent = 'Disconnetti';
+    document.getElementById('twBtn').onclick = disconnectTwitch;
+    updateUI();
+    addMessage('tw', 'System', `✅ Connesso al canale #${channel}`);
   };
-
+  
   ws.onmessage = (e) => {
-    const raw = e.data;
-    const lines = raw.split('\r\n').filter(Boolean);
-
-    lines.forEach(line => {
-      if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
-
-      let tags = {};
-      let rest = line;
-      if (line.startsWith('@')) {
-        const spIdx = line.indexOf(' ');
-        const tagStr = line.slice(1, spIdx);
-        rest = line.slice(spIdx+1);
-        tagStr.split(';').forEach(t => {
-          const [k,v] = t.split('=');
-          tags[k] = v;
-        });
+    const line = e.data;
+    if (line.includes('PRIVMSG')) {
+      const match = line.match(/:([^!]+)![^@]+@[^ ]+ PRIVMSG #[^ ]+ :(.+)/);
+      if (match) {
+        addMessage('tw', match[1], match[2]);
       }
+    }
+  };
+  
+  ws.onerror = () => {
+    addMessage('tw', 'System', '❌ Errore connessione Twitch');
+  };
+}
 
-      if (rest.includes('PRIVMSG')) {
-        const nickMatch = rest.match(/
+function disconnectTwitch() {
+  if (state.twitchWS) state.twitchWS.close();
+  state.twConnected = false;
+  state.twitchWS = null;
+  localStorage.removeItem('twitch_token');
+  localStorage.removeItem('twitch_channel');
+  localStorage.removeItem('twitch_client_id');
+  document.getElementById('twChannelName').textContent = '—';
+  document.getElementById('twCard').classList.remove('connected-tw');
+  document.getElementById('twBtn').textContent = 'Connect';
+  document.getElementById('twBtn').onclick = () => openModal('twModal');
+  updateUI();
+  addMessage('tw', 'System', '❌ Disconnesso da Twitch');
+}
+
+// YOUTUBE (con Worker)
+function connectYT() {
+  const clientId = document.getElementById('ytClientId').value.trim();
+  if (!clientId) { alert('Inserisci Client ID'); return; }
+  
+  closeModal('ytModal');
+  
+  const scope = 'https://www.googleapis.com/auth/youtube.readonly';
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${WORKER_URL}/token&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+  
+  const popup = window.open(authUrl, 'yt_auth', 'width=600,height=700');
+  
+  const timer = setInterval(async () => {
+    try {
+      const popupUrl = popup.location.href;
+      if (popupUrl.includes('?code=')) {
+        clearInterval(timer);
+        const code = new URL(popupUrl).searchParams.get('code');
+        popup.close();
+        
+        const response = await fetch(`${WORKER_URL}/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const data = await response.json();
+        
+        if (data.access_token) {
+          localStorage.setItem('yt_token', data.access_token);
+          localStorage.setItem('yt_refresh', data.refresh_token);
+          localStorage.setItem('yt_client_id', clientId);
+          
+          state.ytConnected = true;
+          document.getElementById('ytChannelName').textContent = 'YouTube Live';
+          document.getElementById('ytCard').classList.add('connected-yt');
+          document.getElementById('ytBtn').textContent = 'Disconnetti';
+          document.getElementById('ytBtn').onclick = disconnectYT;
+          updateUI();
+          addMessage('yt', 'System', '✅ YouTube connesso!');
+          
+          startYTPolling(data.access_token);
+        }
+      }
+    } catch(e) {}
+  }, 500);
+}
+
+function startYTPolling(token) {
+  // Simulazione viewer (in produzione prendi dalla API)
+  setInterval(() => {
+    if (state.ytConnected) {
+      state.ytViewers = Math.floor(Math.random() * 100) + 50;
+      updateUI();
+    }
+  }, 30000);
+}
+
+function disconnectYT() {
+  state.ytConnected = false;
+  state.ytViewers = null;
+  localStorage.removeItem('yt_token');
+  localStorage.removeItem('yt_refresh');
+  localStorage.removeItem('yt_client_id');
+  document.getElementById('ytChannelName').textContent = '—';
+  document.getElementById('ytCard').classList.remove('connected-yt');
+  document.getElementById('ytBtn').textContent = 'Connect';
+  document.getElementById('ytBtn').onclick = () => openModal('ytModal');
+  updateUI();
+  addMessage('yt', 'System', '❌ Disconnesso da YouTube');
+}
+
+// AUTO-RICONNESSIONE
+function autoReconnect() {
+  const twToken = localStorage.getItem('twitch_token');
+  const twChannel = localStorage.getItem('twitch_channel');
+  if (twToken && twChannel) {
+    initTwitchIRC(twChannel, twToken);
+  }
+  
+  const ytToken = localStorage.getItem('yt_token');
+  if (ytToken) {
+    state.ytConnected = true;
+    document.getElementById('ytChannelName').textContent = 'YouTube Live';
+    document.getElementById('ytCard').classList.add('connected-yt');
+    document.getElementById('ytBtn').textContent = 'Disconnetti';
+    document.getElementById('ytBtn').onclick = disconnectYT;
+    updateUI();
+    addMessage('yt', 'System', '✅ YouTube riconnesso automaticamente');
+    startYTPolling(ytToken);
+  }
+}
+
+// DEMO MODE
+function startDemo() {
+  const demoMessages = [
+    { platform: 'tw', author: 'MarcoGamer', text: 'Ciao a tutti!!' },
+    { platform: 'yt', author: 'LucaStream', text: 'Bella live!' },
+    { platform: 'tw', author: 'SofiaPlay', text: 'Che gioco è?' },
+    { platform: 'yt', author: 'AndreaGaming', text: 'Fantastico!' },
+    { platform: 'tw', author: 'NinaCoder', text: 'Forza!! 🔥' }
+  ];
+  
+  let idx = 0;
+  state.demoInterval = setInterval(() => {
+    if (!state.ytConnected && !state.twConnected) {
+      const msg = demoMessages[idx % demoMessages.length];
+      addMessage(msg.platform, msg.author, msg.text);
+      idx++;
+      
+      state.ytViewers = 1240 + Math.floor(Math.random() * 100);
+      state.twViewers = 870 + Math.floor(Math.random() * 80);
+      updateUI();
+    }
+  }, 3000);
+}
+
+// INIT
+updateUI();
+autoReconnect();
+startDemo();
+</script>
+</body>
+</html>
