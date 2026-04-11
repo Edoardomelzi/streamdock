@@ -1145,38 +1145,23 @@ function connectYT() {
 
   closeModal('ytModal');
 
-  // Usa code flow per ottenere refresh_token tramite il worker Cloudflare
   const redirectUri = 'https://streamdockedo.edoardo-melzi.workers.dev/token';
   const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
 
-  const popup = window.open(authUrl, 'yt_auth', 'width=600,height=700');
+  // Ascolta il messaggio dal popup (il worker lo manda dopo lo scambio del codice)
+  const onMessage = (event) => {
+    const data = event.data;
+    if (!data || !data.access_token) return;
+    window.removeEventListener('message', onMessage);
+    CONFIG.youtube.accessToken  = data.access_token;
+    CONFIG.youtube.refreshToken = data.refresh_token || '';
+    saveYTCredentials();
+    initYouTubeChat(data.access_token, videoId);
+  };
+  window.addEventListener('message', onMessage);
 
-  const timer = setInterval(async () => {
-    try {
-      const pu = new URL(popup.location.href);
-      const code = pu.searchParams.get('code');
-      if (code) {
-        clearInterval(timer);
-        popup.close();
-        // Scambia code con access+refresh token via worker
-        const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        const data = await r.json();
-        if (data.access_token) {
-          CONFIG.youtube.accessToken  = data.access_token;
-          CONFIG.youtube.refreshToken = data.refresh_token;
-          saveYTCredentials();
-          initYouTubeChat(data.access_token, videoId);
-        } else {
-          alert('Errore login YouTube: ' + (data.error_description || JSON.stringify(data)));
-        }
-      }
-    } catch(e) {}
-  }, 500);
+  window.open(authUrl, 'yt_auth', 'width=600,height=700');
 }
 
 async function refreshYTToken() {
