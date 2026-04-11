@@ -1145,23 +1145,33 @@ function connectYT() {
 
   closeModal('ytModal');
 
+  // Genera un ID sessione unico per questo login
+  const sessionId = Math.random().toString(36).slice(2);
   const redirectUri = 'https://streamdockedo.edoardo-melzi.workers.dev/token';
   const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
-
-  // Ascolta il messaggio dal popup (il worker lo manda dopo lo scambio del codice)
-  const onMessage = (event) => {
-    const data = event.data;
-    if (!data || !data.access_token) return;
-    window.removeEventListener('message', onMessage);
-    CONFIG.youtube.accessToken  = data.access_token;
-    CONFIG.youtube.refreshToken = data.refresh_token || '';
-    saveYTCredentials();
-    initYouTubeChat(data.access_token, videoId);
-  };
-  window.addEventListener('message', onMessage);
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&state=${sessionId}`;
 
   window.open(authUrl, 'yt_auth', 'width=600,height=700');
+
+  // Polling: controlla ogni 2s se il worker ha salvato i token
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts > 60) { clearInterval(poll); return; } // timeout 2 min
+    try {
+      const r = await fetch(`https://streamdockedo.edoardo-melzi.workers.dev/pickup?session=${sessionId}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.access_token) {
+          clearInterval(poll);
+          CONFIG.youtube.accessToken  = data.access_token;
+          CONFIG.youtube.refreshToken = data.refresh_token || '';
+          saveYTCredentials();
+          initYouTubeChat(data.access_token, videoId);
+        }
+      }
+    } catch(e) {}
+  }, 2000);
 }
 
 async function refreshYTToken() {
