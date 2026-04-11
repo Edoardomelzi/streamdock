@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamDock — Login YouTube</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #080808;
+  color: #f0f0f0;
+  font-family: 'IBM Plex Mono', monospace, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.card {
+  background: #0f0f0f;
+  border: 1px solid #222;
+  border-radius: 10px;
+  padding: 32px;
+  width: 100%;
+  max-width: 480px;
+}
+.title {
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 24px;
+}
+.title span { color: #ff2020; }
+.step {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #161616;
+  border-radius: 6px;
+  border-left: 2px solid #333;
+}
+.step.active { border-left-color: #ff2020; }
+.step.done { border-left-color: #00e676; }
+.step-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 8px;
+}
+.step-content { font-size: 13px; color: #ccc; line-height: 1.5; }
+.field { margin-top: 10px; }
+.field label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 5px;
+}
+.field input {
+  width: 100%;
+  background: #0f0f0f;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: #f0f0f0;
+  font-family: monospace;
+  font-size: 12px;
+  outline: none;
+}
+.field input:focus { border-color: #666; }
+.btn {
+  margin-top: 16px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 5px;
+  border: none;
+  font-family: monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-yt { background: #ff2020; color: white; }
+.btn-yt:hover { background: #e60000; }
+.btn-yt:disabled { background: #333; color: #666; cursor: default; }
+.token-box {
+  margin-top: 10px;
+  background: #080808;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 11px;
+  word-break: break-all;
+  color: #00e676;
+  display: none;
+}
+.copy-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #999;
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: none;
+}
+.copy-btn:hover { border-color: #666; color: #f0f0f0; }
+.hint {
+  font-size: 11px;
+  color: #555;
+  line-height: 1.6;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #1a1a1a;
+}
+.success { color: #00e676; font-size: 13px; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">StreamDock — <span>YouTube Login</span></div>
+
+  <div class="step active" id="step1">
+    <div class="step-label">Step 1 — Client ID</div>
+    <div class="step-content">
+      Inserisci il tuo Google OAuth Client ID
+      <div class="field">
+        <input type="text" id="clientId" placeholder="xxxx.apps.googleusercontent.com">
+      </div>
+      <button class="btn btn-yt" id="loginBtn" onclick="startLogin()">Accedi con Google</button>
+    </div>
+  </div>
+
+  <div class="step" id="step2">
+    <div class="step-label">Step 2 — Refresh Token</div>
+    <div class="step-content">
+      Copia questo token e incollalo nel dock su OBS
+      <div class="token-box" id="tokenBox"></div>
+      <button class="copy-btn" id="copyBtn" onclick="copyToken()">Copia token</button>
+      <div class="success" id="copySuccess">✓ Copiato!</div>
+    </div>
+  </div>
+
+  <div class="hint">
+    Questa pagina va aperta <strong>una volta sola</strong> nel browser. 
+    Dopo aver copiato il token, il dock si ricorderà tutto automaticamente.
+  </div>
+</div>
+
+<script>
+let refreshToken = '';
+
+function startLogin() {
+  const clientId = document.getElementById('clientId').value.trim();
+  if (!clientId) { alert('Inserisci il Client ID'); return; }
+
+  localStorage.setItem('sd_yt_client_id', clientId);
+
+  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
+
+  window.location.href = authUrl;
+}
+
+async function handleCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return;
+
+  // Pulisci URL
+  window.history.replaceState({}, '', window.location.pathname);
+
+  const clientId = localStorage.getItem('sd_yt_client_id');
+  if (!clientId) { alert('Client ID non trovato, riprova'); return; }
+
+  document.getElementById('loginBtn').disabled = true;
+  document.getElementById('loginBtn').textContent = 'Connessione...';
+
+  try {
+    // Scambia code con token tramite worker
+    const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, redirectUri: window.location.href.split('?')[0].split('#')[0] })
+    });
+    const data = await r.json();
+
+    if (data.refresh_token) {
+      refreshToken = data.refresh_token;
+      
+      // Mostra step 2
+      document.getElementById('step1').className = 'step done';
+      document.getElementById('step2').className = 'step active';
+      document.getElementById('tokenBox').textContent = data.refresh_token;
+      document.getElementById('tokenBox').style.display = 'block';
+      document.getElementById('copyBtn').style.display = 'block';
+
+      // Salva anche in localStorage per comodità
+      const saved = {
+        clientId,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        videoId: ''
+      };
+      localStorage.setItem('sd_yt', JSON.stringify(saved));
+
+    } else {
+      alert('Errore: ' + (data.error_description || JSON.stringify(data)));
+    }
+  } catch(e) {
+    alert('Errore connessione worker: ' + e.message);
+  }
+}
+
+function copyToken() {
+  navigator.clipboard.writeText(refreshToken).then(() => {
+    document.getElementById('copySuccess').style.display = 'block';
+    setTimeout(() => document.getElementById('copySuccess').style.display = 'none', 2000);
+  });
+}
+
+// Se siamo tornati dal login Google
+if (window.location.search.includes('code=')) {
+  handleCallback();
+}
+</script>
+</body>
+</html>
