@@ -750,7 +750,16 @@ function getAuthorColor(name) {
 // ═══════════════════════════════════════════════════════
 //  MODAL HELPERS
 // ═══════════════════════════════════════════════════════
-function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function openModal(id) {
+  document.getElementById(id).classList.remove('hidden');
+  // Pre-compila il Client ID se salvato
+  if (id === 'ytModal') {
+    try {
+      const saved = localStorage.getItem('sd_yt_clientid');
+      if (saved) document.getElementById('ytClientId').value = saved;
+    } catch(e) {}
+  }
+}
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
 // ═══════════════════════════════════════════════════════
@@ -1142,6 +1151,9 @@ function connectYT() {
 
   CONFIG.youtube.clientId = clientId;
   CONFIG.youtube.videoId  = videoId || '';
+
+  // Salva il client ID per non doverlo reinserire
+  try { localStorage.setItem('sd_yt_clientid', clientId); } catch(e) {}
 
   closeModal('ytModal');
 
