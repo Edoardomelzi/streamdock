@@ -21,6 +21,8 @@
   --text-mid: #999;
   --green: #00e676;
   --gold: #ffd600;
+  --tt: #ff0050;
+  --tt-soft: rgba(255,0,80,0.12);
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'IBM Plex Sans', sans-serif;
 }
@@ -74,7 +76,7 @@ body {
 /* ── PLATFORMS ROW ── */
 .platforms {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 6px;
 }
 
@@ -91,6 +93,7 @@ body {
 
 .platform-card.connected-yt { border-color: rgba(255,32,32,0.4); background: var(--yt-soft); }
 .platform-card.connected-tw { border-color: rgba(145,70,255,0.4); background: var(--tw-soft); }
+.platform-card.connected-tt { border-color: rgba(255,0,80,0.4); background: var(--tt-soft); }
 
 .plat-left {
   display: flex;
@@ -107,6 +110,7 @@ body {
 
 .plat-icon.yt { background: var(--yt); }
 .plat-icon.tw { background: var(--tw); }
+.plat-icon.tt { background: var(--tt); }
 
 .plat-icon svg { width: 13px; height: 13px; fill: white; }
 
@@ -202,6 +206,7 @@ body {
 .filter-pill.active-all { border-color: var(--text-mid); color: var(--text); }
 .filter-pill.active-yt { border-color: var(--yt); color: var(--yt); background: var(--yt-soft); }
 .filter-pill.active-tw { border-color: var(--tw); color: var(--tw); background: var(--tw-soft); }
+.filter-pill.active-tt { border-color: var(--tt); color: var(--tt); background: var(--tt-soft); }
 
 .filter-spacer { flex: 1; }
 
@@ -301,6 +306,10 @@ body {
 .msg.event-member { border-left-color: var(--yt); }
 .msg.event-superchat { border-left-color: #00e5ff; }
 .msg.event-gift { border-left-color: #ff80ab; }
+.msg.event-ttgift { border-left-color: var(--tt); }
+.msg.event-follow { border-left-color: #00f2ea; }
+.msg.event-share  { border-left-color: #69c9d0; }
+.msg.msg-platform.tt { background: var(--tt); }
 .msg.event-raid { border-left-color: #ff9800; }
 .msg.event-reward { border-left-color: #00bcd4; }
 .msg.event-hype { border-left-color: #e91e63; }
@@ -325,6 +334,9 @@ body {
 .badge-member { background: rgba(255,32,32,0.15); color: var(--yt); }
 .badge-superchat { background: rgba(0,229,255,0.15); color: #00e5ff; }
 .badge-gift   { background: rgba(255,128,171,0.15); color: #ff80ab; }
+.badge-ttgift { background: rgba(255,0,80,0.15); color: var(--tt); }
+.badge-follow { background: rgba(0,242,234,0.15); color: #00f2ea; }
+.badge-share  { background: rgba(105,201,208,0.15); color: #69c9d0; }
 .badge-raid   { background: rgba(255,152,0,0.15); color: #ff9800; }
 .badge-reward { background: rgba(0,188,212,0.15); color: #00bcd4; }
 .badge-hype   { background: rgba(233,30,99,0.15); color: #e91e63; }
@@ -671,6 +683,23 @@ body {
         <button class="connect-btn tw" id="twBtn" onclick="openModal('twModal')">Connect</button>
       </div>
     </div>
+    <!-- TikTok card -->
+    <div class="platform-card" id="ttCard">
+      <div class="plat-left">
+        <div class="plat-icon tt">
+          <svg viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/></svg>
+        </div>
+        <div class="plat-info">
+          <div class="plat-name">TikTok</div>
+          <div class="plat-channel" id="ttChannelName">—</div>
+        </div>
+      </div>
+      <div class="plat-right">
+        <div class="viewer-count" style="color:var(--tt)" id="ttViewers">—</div>
+        <div class="viewer-label">viewers</div>
+        <button class="connect-btn" style="color:var(--tt);border-color:var(--tt)" id="ttBtn" onclick="connectTikTok()">Connect</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -684,6 +713,10 @@ body {
   <button class="filter-pill" id="f-tw" onclick="setFilter('tw')">
     <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="display:inline;margin-right:3px;vertical-align:middle"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg>
     Twitch
+  </button>
+  <button class="filter-pill" id="f-tt" onclick="setFilter('tt')">
+    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="display:inline;margin-right:3px;vertical-align:middle"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/></svg>
+    TikTok
   </button>
   <div class="filter-spacer"></div>
   <div class="msg-count" id="msgCount">0 msg</div>
@@ -727,6 +760,8 @@ const state = {
   twConnected: false,
   ytViewers: null,
   twViewers: null,
+  ttViewers: null,
+  ttConnected: false,
   demoMode: true,
   twitchWS: null,
   ytPollInterval: null,
@@ -767,9 +802,10 @@ function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 // ═══════════════════════════════════════════════════════
 function setFilter(f) {
   state.filter = f;
-  ['all','yt','tw'].forEach(k => {
+  ['all','yt','tw','tt'].forEach(k => {
     const el = document.getElementById('f-'+k);
-    el.className = 'filter-pill' + (k === f ? (f==='all'?' active-all':f==='yt'?' active-yt':' active-tw') : '');
+    if (!el) return;
+    el.className = 'filter-pill' + (k === f ? (f==='all'?' active-all':f==='yt'?' active-yt':f==='tw'?' active-tw':' active-tt') : '');
   });
   renderAll();
 }
@@ -799,6 +835,7 @@ function scrollBottom() {
 // ═══════════════════════════════════════════════════════
 const YT_SVG = `<svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.75 15.5V8.5l6.5 3.5-6.5 3.5z"/></svg>`;
 const TW_SVG = `<svg viewBox="0 0 24 24"><path d="M11.6 6H13v4.5h-1.4V6zm3.8 0h1.4v4.5h-1.4V6zM4.3 0L1 3.4V20.6h5.7V24l3.4-3.4h2.7L21.6 12V0H4.3zm15.7 11.3l-2.7 2.7h-2.7l-2.3 2.3v-2.3H9.6V1.6h10.4v9.7z"/></svg>`;
+const TT_SVG = `<svg viewBox="0 0 24 24"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/></svg>`;
 
 function renderMessage(msg) {
   const div = document.createElement('div');
@@ -809,7 +846,7 @@ function renderMessage(msg) {
     div.className = `msg`;
     div.dataset.platform = msg.platform;
     div.innerHTML = `
-      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
+      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : msg.platform === 'tw' ? TW_SVG : TT_SVG}</div>
       <div class="msg-body">
         <div class="msg-meta">
           <span class="msg-author" style="color:${getAuthorColor(msg.author)}">${escHtml(msg.author)}</span>
@@ -823,7 +860,7 @@ function renderMessage(msg) {
     div.className = `msg event event-${msg.subtype}`;
     div.dataset.platform = msg.platform;
     div.innerHTML = `
-      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : TW_SVG}</div>
+      <div class="msg-platform ${msg.platform}">${msg.platform === 'yt' ? YT_SVG : msg.platform === 'tw' ? TW_SVG : TT_SVG}</div>
       <div class="msg-body">
         <div><span class="event-badge badge-${msg.subtype}">${evConf.icon} ${evConf.label}</span></div>
         <div class="event-main">${evConf.main(msg)}</div>
@@ -842,6 +879,9 @@ function eventConfig(msg) {
     member:    { icon:'●', label:'MEMBRO YT', main: m => `<strong>${escHtml(m.author)}</strong> è diventato membro!` },
     superchat: { icon:'⚡',label:'SUPERCHAT', main: m => `<strong>${escHtml(m.author)}</strong> — <span class="event-amount" style="color:#00e5ff">${m.amount}</span>` },
     raid:    { icon:'⚔', label:'RAID',    main: m => `<strong>${escHtml(m.author)}</strong> sta raidando con <span class="event-amount" style="color:#ff9800">${m.amount} spettatori</span>!` },
+    ttgift:  { icon:'🎁', label:'GIFT TT', main: m => `<strong>${escHtml(m.author)}</strong> ha mandato <span class="event-amount" style="color:var(--tt)">${m.amount}x ${escHtml(m.giftName||'Gift')}</span>` },
+    follow:  { icon:'➕', label:'FOLLOW',  main: m => `<strong>${escHtml(m.author)}</strong> ha iniziato a seguirti su TikTok!` },
+    share:   { icon:'↗', label:'SHARE',   main: m => `<strong>${escHtml(m.author)}</strong> ha condiviso la live!` },
     reward:  { icon:'🎯', label:'REWARD',  main: m => `<strong>${escHtml(m.author)}</strong> ha riscattato: <em>${escHtml(m.rewardTitle || 'Channel Point Reward')}</em>` },
     hype:    { icon:'🔥', label:'HYPE TRAIN', main: m => `Hype Train Livello <span class="event-amount" style="color:#e91e63">${m.level}</span>!` },
   };
@@ -888,13 +928,15 @@ function renderAll() {
 function updateViewerUI() {
   const yv = state.ytViewers;
   const tv = state.twViewers;
+  const ttv = state.ttViewers;
   document.getElementById('ytViewers').textContent = yv !== null ? yv.toLocaleString('it') : '—';
   document.getElementById('twViewers').textContent = tv !== null ? tv.toLocaleString('it') : '—';
-  const total = (yv || 0) + (tv || 0);
-  document.getElementById('totalViewers').textContent = (yv !== null || tv !== null) ? total.toLocaleString('it') : '—';
+  document.getElementById('ttViewers').textContent = ttv !== null ? ttv.toLocaleString('it') : '—';
+  const total = (yv || 0) + (tv || 0) + (ttv || 0);
+  document.getElementById('totalViewers').textContent = (yv !== null || tv !== null || ttv !== null) ? total.toLocaleString('it') : '—';
 
   // status
-  const anyLive = state.ytConnected || state.twConnected;
+  const anyLive = state.ytConnected || state.twConnected || state.ttConnected;
   const statusEl = document.getElementById('statusLabel');
   statusEl.textContent = anyLive ? '● LIVE' : '● OFFLINE';
   statusEl.className = 'connection-status' + (anyLive ? ' live' : '');
@@ -1128,6 +1170,104 @@ function initTwitchEventSub(clientId, token, channel) {
   };
 }
 
+// ═══════════════════════════════════════════════════════
+//  TIKTOK — connessione via TikFinity WebSocket locale
+// ═══════════════════════════════════════════════════════
+let tikfinityWS = null;
+let tikfinityInterval = null;
+
+function connectTikTok() {
+  // TikFinity espone WebSocket su porta 21213
+  if (tikfinityWS) { tikfinityWS.close(); }
+
+  const ws = new WebSocket('ws://localhost:21213');
+  tikfinityWS = ws;
+
+  ws.onopen = () => {
+    state.ttConnected = true;
+    state.demoMode = false;
+    document.getElementById('demoBanner').style.display = 'none';
+    document.getElementById('ttCard').className = 'platform-card connected-tt';
+    document.getElementById('ttBtn').textContent = 'Disconnetti';
+    document.getElementById('ttBtn').className = 'connect-btn disconnect';
+    document.getElementById('ttBtn').onclick = disconnectTikTok;
+    document.getElementById('ttChannelName').textContent = 'TikFinity';
+    updateViewerUI();
+    addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'✓ TikTok connesso via TikFinity!' });
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const type = data.type || data.event;
+
+      if (type === 'chat' || type === 'member_message') {
+        addMessage({
+          platform: 'tt',
+          type: 'chat',
+          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente',
+          text: data.comment || data.content || data.message || ''
+        });
+      } else if (type === 'gift') {
+        addMessage({
+          platform: 'tt', type: 'event', subtype: 'ttgift',
+          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente',
+          amount: data.repeatCount || data.giftCount || 1,
+          giftName: data.giftName || data.gift?.name || 'Gift'
+        });
+      } else if (type === 'follow' || type === 'member') {
+        addMessage({
+          platform: 'tt', type: 'event', subtype: 'follow',
+          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente'
+        });
+      } else if (type === 'share') {
+        addMessage({
+          platform: 'tt', type: 'event', subtype: 'share',
+          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente'
+        });
+      } else if (type === 'roomUser' || type === 'viewer_count') {
+        const count = data.viewerCount || data.totalUserCount || data.count;
+        if (count !== undefined) {
+          state.ttViewers = count;
+          updateViewerUI();
+        }
+      }
+    } catch(err) {}
+  };
+
+  ws.onerror = () => {
+    addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'⚠ TikFinity non trovato. Assicurati che sia aperto.' });
+  };
+
+  ws.onclose = () => {
+    if (state.ttConnected) {
+      state.ttConnected = false;
+      document.getElementById('ttCard').className = 'platform-card';
+      document.getElementById('ttBtn').textContent = 'Connect';
+      document.getElementById('ttBtn').className = 'connect-btn';
+      document.getElementById('ttBtn').style.color = 'var(--tt)';
+      document.getElementById('ttBtn').style.borderColor = 'var(--tt)';
+      document.getElementById('ttBtn').onclick = connectTikTok;
+      state.ttViewers = null;
+      updateViewerUI();
+    }
+  };
+}
+
+function disconnectTikTok() {
+  if (tikfinityWS) { tikfinityWS.close(); tikfinityWS = null; }
+  state.ttConnected = false;
+  state.ttViewers = null;
+  document.getElementById('ttCard').className = 'platform-card';
+  document.getElementById('ttChannelName').textContent = '—';
+  document.getElementById('ttBtn').textContent = 'Connect';
+  document.getElementById('ttBtn').className = 'connect-btn';
+  document.getElementById('ttBtn').style.color = 'var(--tt)';
+  document.getElementById('ttBtn').style.borderColor = 'var(--tt)';
+  document.getElementById('ttBtn').onclick = connectTikTok;
+  updateViewerUI();
+}
+
 function disconnectTwitch() {
   clearTwitchCredentials();
   if (state.twitchWS) { state.twitchWS.close(); state.twitchWS = null; }
@@ -1348,6 +1488,10 @@ const DEMO_MSGS = [
   { platform:'tw', type:'event', subtype:'hype', author:'Hype Train', level:2 },
   { platform:'yt', type:'chat', author:'TommasoX', text:'bella quella mossa!' },
   { platform:'tw', type:'chat', author:'SlayerFR', text:'gg gg gg' },
+  { platform:'tt', type:'chat', author:'tiktok_fan99', text:'vi seguo da TikTok!! 🔥' },
+  { platform:'tt', type:'event', subtype:'follow', author:'newuser_tt' },
+  { platform:'tt', type:'event', subtype:'ttgift', author:'bigfan_tt', amount:5, giftName:'Rose' },
+  { platform:'tt', type:'event', subtype:'share', author:'viral_tt' },
 ];
 
 let demoIdx = 0;
@@ -1360,6 +1504,7 @@ function runDemo() {
   // fake viewers
   state.ytViewers = 1240 + Math.floor(Math.random()*80 - 40);
   state.twViewers = 870 + Math.floor(Math.random()*60 - 30);
+  state.ttViewers = 540 + Math.floor(Math.random()*40 - 20);
   updateViewerUI();
 
   const next = 1200 + Math.random() * 3000;
