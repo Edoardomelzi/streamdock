@@ -590,6 +590,23 @@ body {
 <body>
 
 <!-- CONFIG MODALS -->
+<div class="modal-overlay hidden" id="ttModal">
+  <div class="modal">
+    <div class="modal-title">Connect — <span>TikTok</span></div>
+    <div class="modal-hint">
+      Incolla il link del tuo widget TikFinity Activity Feed.<br>
+      Lo trovi su <strong>tikfinity.zerody.one → Widgets → Activity Feed → Copy Link</strong>
+    </div>
+    <div class="field">
+      <label>URL Widget TikFinity</label>
+      <input type="text" id="ttWidgetUrl" placeholder="https://tikfinity.zerody.one/widget/activity-feed?cid=...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="closeModal('ttModal')">Annulla</button>
+      <button class="btn" style="background:var(--tt);color:white" onclick="saveTTAndConnect()">Connetti</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay hidden" id="ytModal">
   <div class="modal">
     <div class="modal-title">Connect — <span>YouTube</span></div>
@@ -697,7 +714,7 @@ body {
       <div class="plat-right">
         <div class="viewer-count" style="color:var(--tt)" id="ttViewers">—</div>
         <div class="viewer-label">viewers</div>
-        <button class="connect-btn" style="color:var(--tt);border-color:var(--tt)" id="ttBtn" onclick="connectTikTok()">Connect</button>
+        <button class="connect-btn" style="color:var(--tt);border-color:var(--tt)" id="ttBtn" onclick="openModal('ttModal')">Connect</button>
       </div>
     </div>
   </div>
@@ -792,6 +809,12 @@ function openModal(id) {
     try {
       const saved = localStorage.getItem('sd_yt_clientid');
       if (saved) document.getElementById('ytClientId').value = saved;
+    } catch(e) {}
+  }
+  if (id === 'ttModal') {
+    try {
+      const saved = localStorage.getItem('sd_tt_url');
+      if (saved) document.getElementById('ttWidgetUrl').value = saved;
     } catch(e) {}
   }
 }
@@ -1171,91 +1194,109 @@ function initTwitchEventSub(clientId, token, channel) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  TIKTOK — connessione via TikFinity WebSocket locale
+//  TIKTOK — lettura iframe TikFinity via MutationObserver
 // ═══════════════════════════════════════════════════════
-let tikfinityWS = null;
-let tikfinityInterval = null;
+let ttObserver = null;
+let ttIframe = null;
+let ttSeenIds = new Set();
 
 function connectTikTok() {
-  // TikFinity espone WebSocket su porta 21213
-  if (tikfinityWS) { tikfinityWS.close(); }
+  const url = document.getElementById('ttWidgetUrl')?.value?.trim();
+  if (!url) { openModal('ttModal'); return; }
+  startTikTokObserver(url);
+}
 
-  const ws = new WebSocket('ws://localhost:21213');
-  tikfinityWS = ws;
+function startTikTokObserver(url) {
+  // Salva URL
+  try { localStorage.setItem('sd_tt_url', url); } catch(e) {}
 
-  ws.onopen = () => {
-    state.ttConnected = true;
-    state.demoMode = false;
-    document.getElementById('demoBanner').style.display = 'none';
-    document.getElementById('ttCard').className = 'platform-card connected-tt';
-    document.getElementById('ttBtn').textContent = 'Disconnetti';
-    document.getElementById('ttBtn').className = 'connect-btn disconnect';
-    document.getElementById('ttBtn').onclick = disconnectTikTok;
-    document.getElementById('ttChannelName').textContent = 'TikFinity';
-    updateViewerUI();
-    addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'✓ TikTok connesso via TikFinity!' });
-  };
+  // Crea iframe nascosto
+  if (ttIframe) ttIframe.remove();
+  ttIframe = document.createElement('iframe');
+  ttIframe.src = url;
+  ttIframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:-9999px;left:-9999px;border:none';
+  ttIframe.id = 'ttIframe';
+  document.body.appendChild(ttIframe);
 
-  ws.onmessage = (e) => {
+  ttIframe.onload = () => {
     try {
-      const data = JSON.parse(e.data);
-      const type = data.type || data.event;
-
-      if (type === 'chat' || type === 'member_message') {
-        addMessage({
-          platform: 'tt',
-          type: 'chat',
-          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente',
-          text: data.comment || data.content || data.message || ''
-        });
-      } else if (type === 'gift') {
-        addMessage({
-          platform: 'tt', type: 'event', subtype: 'ttgift',
-          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente',
-          amount: data.repeatCount || data.giftCount || 1,
-          giftName: data.giftName || data.gift?.name || 'Gift'
-        });
-      } else if (type === 'follow' || type === 'member') {
-        addMessage({
-          platform: 'tt', type: 'event', subtype: 'follow',
-          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente'
-        });
-      } else if (type === 'share') {
-        addMessage({
-          platform: 'tt', type: 'event', subtype: 'share',
-          author: data.uniqueId || data.nickname || data.user?.nickname || 'Utente'
-        });
-      } else if (type === 'roomUser' || type === 'viewer_count') {
-        const count = data.viewerCount || data.totalUserCount || data.count;
-        if (count !== undefined) {
-          state.ttViewers = count;
-          updateViewerUI();
-        }
+      const doc = ttIframe.contentDocument || ttIframe.contentWindow.document;
+      if (!doc) {
+        addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'⚠ TikFinity blocca la lettura diretta. Prova a usare stesso dominio.' });
+        return;
       }
-    } catch(err) {}
-  };
 
-  ws.onerror = () => {
-    addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'⚠ TikFinity non trovato. Assicurati che sia aperto.' });
-  };
+      // Trova il container dei messaggi
+      const target = doc.body;
 
-  ws.onclose = () => {
-    if (state.ttConnected) {
-      state.ttConnected = false;
-      document.getElementById('ttCard').className = 'platform-card';
-      document.getElementById('ttBtn').textContent = 'Connect';
-      document.getElementById('ttBtn').className = 'connect-btn';
-      document.getElementById('ttBtn').style.color = 'var(--tt)';
-      document.getElementById('ttBtn').style.borderColor = 'var(--tt)';
-      document.getElementById('ttBtn').onclick = connectTikTok;
-      state.ttViewers = null;
+      if (ttObserver) ttObserver.disconnect();
+      ttObserver = new MutationObserver((mutations) => {
+        mutations.forEach(mutation => {
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType !== 1) return;
+            parseTikFinityNode(node);
+          });
+        });
+      });
+
+      ttObserver.observe(target, { childList: true, subtree: true });
+
+      // Connesso!
+      state.ttConnected = true;
+      state.demoMode = false;
+      document.getElementById('demoBanner').style.display = 'none';
+      document.getElementById('ttCard').className = 'platform-card connected-tt';
+      document.getElementById('ttBtn').textContent = 'Disconnetti';
+      document.getElementById('ttBtn').className = 'connect-btn disconnect';
+      document.getElementById('ttBtn').onclick = disconnectTikTok;
+      document.getElementById('ttChannelName').textContent = 'TikFinity';
       updateViewerUI();
+      addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'✓ TikTok connesso via widget TikFinity!' });
+
+    } catch(e) {
+      // Cross-origin block — prova approccio alternativo con postMessage
+      addMessage({ platform:'tt', type:'chat', author:'StreamDock', text:'⚠ Accesso bloccato dal browser. Controlla che il link sia corretto.' });
+      console.warn('TikFinity iframe error:', e);
     }
   };
 }
 
+function parseTikFinityNode(node) {
+  // TikFinity activity feed struttura: cerca testo e username
+  const text = node.innerText || node.textContent || '';
+  if (!text.trim()) return;
+
+  // Evita duplicati usando il testo come ID
+  const id = text.slice(0, 80);
+  if (ttSeenIds.has(id)) return;
+  ttSeenIds.add(id);
+  if (ttSeenIds.size > 500) ttSeenIds = new Set([...ttSeenIds].slice(-200));
+
+  // Cerca username (di solito in un elemento con classe nickname/username/name)
+  const authorEl = node.querySelector('[class*="nick"],[class*="user"],[class*="name"],[class*="author"]');
+  const author = authorEl?.textContent?.trim() || 'TikTok';
+
+  // Cerca testo messaggio
+  const msgEl = node.querySelector('[class*="comment"],[class*="message"],[class*="text"],[class*="content"]');
+  const msgText = msgEl?.textContent?.trim() || '';
+
+  // Cerca tipo evento (gift, follow, share)
+  const nodeClass = (node.className || '').toLowerCase() + (node.innerHTML || '').toLowerCase();
+
+  if (nodeClass.includes('gift')) {
+    addMessage({ platform:'tt', type:'event', subtype:'ttgift', author, amount:1, giftName: msgText || 'Gift' });
+  } else if (nodeClass.includes('follow') || nodeClass.includes('subscribe')) {
+    addMessage({ platform:'tt', type:'event', subtype:'follow', author });
+  } else if (nodeClass.includes('share')) {
+    addMessage({ platform:'tt', type:'event', subtype:'share', author });
+  } else if (msgText) {
+    addMessage({ platform:'tt', type:'chat', author, text: msgText });
+  }
+}
+
 function disconnectTikTok() {
-  if (tikfinityWS) { tikfinityWS.close(); tikfinityWS = null; }
+  if (ttObserver) { ttObserver.disconnect(); ttObserver = null; }
+  if (ttIframe) { ttIframe.remove(); ttIframe = null; }
   state.ttConnected = false;
   state.ttViewers = null;
   document.getElementById('ttCard').className = 'platform-card';
@@ -1264,8 +1305,15 @@ function disconnectTikTok() {
   document.getElementById('ttBtn').className = 'connect-btn';
   document.getElementById('ttBtn').style.color = 'var(--tt)';
   document.getElementById('ttBtn').style.borderColor = 'var(--tt)';
-  document.getElementById('ttBtn').onclick = connectTikTok;
+  document.getElementById('ttBtn').onclick = () => openModal('ttModal');
   updateViewerUI();
+}
+
+function saveTTAndConnect() {
+  const url = document.getElementById('ttWidgetUrl').value.trim();
+  if (!url) { alert('Inserisci il link del widget'); return; }
+  closeModal('ttModal');
+  startTikTokObserver(url);
 }
 
 function disconnectTwitch() {
@@ -1562,6 +1610,15 @@ async function autoReconnect() {
       } else {
         clearTwitchCredentials();
       }
+    }
+  } catch(e) {}
+
+  // TikTok
+  try {
+    const ttUrl = localStorage.getItem('sd_tt_url');
+    if (ttUrl) {
+      document.getElementById('ttWidgetUrl') && (document.getElementById('ttWidgetUrl').value = ttUrl);
+      startTikTokObserver(ttUrl);
     }
   } catch(e) {}
 
