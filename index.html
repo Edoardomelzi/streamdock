@@ -1136,52 +1136,52 @@ function disconnectTwitch() {
 //  YOUTUBE LIVE CHAT API
 // ═══════════════════════════════════════════════════════
 function connectYT() {
-  const clientId    = document.getElementById('ytClientId').value.trim();
-  const refreshTok  = document.getElementById('ytRefreshToken').value.trim();
-  const videoId     = document.getElementById('ytVideoId').value.trim();
-  if (!clientId)   { alert('Inserisci il Client ID Google'); return; }
-  if (!refreshTok) { alert('Inserisci il Refresh Token'); return; }
+  const clientId = document.getElementById('ytClientId').value.trim();
+  const videoId  = document.getElementById('ytVideoId').value.trim();
+  if (!clientId) { alert('Inserisci il Client ID Google'); return; }
 
-  CONFIG.youtube.clientId     = clientId;
-  CONFIG.youtube.videoId      = videoId || '';
-  CONFIG.youtube.refreshToken = refreshTok;
+  CONFIG.youtube.clientId = clientId;
+  CONFIG.youtube.videoId  = videoId || '';
 
   closeModal('ytModal');
 
-  // Ottieni access token dal refresh token via worker
-  refreshYTTokenWith(refreshTok).then(token => {
-    if (token) {
-      CONFIG.youtube.accessToken = token;
-      saveYTCredentials();
-      initYouTubeChat(token, videoId);
-    } else {
-      alert('Refresh token non valido. Rigenera il token dalla pagina di login.');
-    }
-  });
-}
+  // Login OAuth semplice con token implicito
+  const redirectUri = window.location.href.split('?')[0].split('#')[0];
+  const scopes = 'https://www.googleapis.com/auth/youtube.readonly';
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(scopes)}`;
 
-async function refreshYTTokenWith(rt) {
-  try {
-    const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: rt })
-    });
-    const data = await r.json();
-    return data.access_token || null;
-  } catch(e) { return null; }
+  const popup = window.open(authUrl, 'yt_auth', 'width=600,height=700');
+
+  const timer = setInterval(() => {
+    try {
+      const hash = popup.location.hash;
+      if (hash && hash.includes('access_token')) {
+        clearInterval(timer);
+        popup.close();
+        const params = new URLSearchParams(hash.slice(1));
+        CONFIG.youtube.accessToken = params.get('access_token');
+        saveYTCredentials();
+        initYouTubeChat(CONFIG.youtube.accessToken, videoId);
+      }
+    } catch(e) {}
+  }, 500);
 }
 
 async function refreshYTToken() {
   try {
     const saved = JSON.parse(localStorage.getItem('sd_yt') || 'null');
     if (!saved?.refreshToken) return null;
-    const token = await refreshYTTokenWith(saved.refreshToken);
-    if (token) {
-      CONFIG.youtube.accessToken = token;
-      saved.accessToken = token;
+    const r = await fetch('https://streamdockedo.edoardo-melzi.workers.dev/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: saved.refreshToken })
+    });
+    const data = await r.json();
+    if (data.access_token) {
+      CONFIG.youtube.accessToken = data.access_token;
+      saved.accessToken = data.access_token;
       localStorage.setItem('sd_yt', JSON.stringify(saved));
-      return token;
+      return data.access_token;
     }
   } catch(e) {}
   return null;
@@ -1411,15 +1411,14 @@ async function autoReconnect() {
   // YouTube
   try {
     const yt = JSON.parse(localStorage.getItem('sd_yt') || 'null');
-    if (yt && yt.clientId && yt.refreshToken) {
-      CONFIG.youtube.clientId     = yt.clientId;
-      CONFIG.youtube.videoId      = yt.videoId || '';
-      CONFIG.youtube.refreshToken = yt.refreshToken;
-      CONFIG.youtube.accessToken  = yt.accessToken || '';
-      // Sempre ottieni un access token fresco dal refresh token
-      const token = await refreshYTToken();
-      if (token) {
-        initYouTubeChat(token, yt.videoId);
+    if (yt && yt.clientId && yt.accessToken) {
+      CONFIG.youtube.clientId = yt.clientId;
+      CONFIG.youtube.videoId = yt.videoId || '';
+      CONFIG.youtube.accessToken = yt.accessToken;
+      // Verifica che il token sia ancora valido
+      const r = await fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + yt.accessToken);
+      if (r.ok) {
+        initYouTubeChat(yt.accessToken, yt.videoId);
       } else {
         clearYTCredentials();
       }
